@@ -176,13 +176,15 @@ An earlier draft added `ClearTracking()` to the port. Not needed — `ex.Entries
 | Race | Constraint | On retry |
 |---|---|---|
 | Summary already updated | token mismatch → `DbUpdateConcurrencyException` | re-read `prior`, recompute |
-| Summary first-insert | `ix_student_attendance_summaries_student_id_school_year_start` | row now exists → update branch |
+| Summary first-insert | `ix_summaries_student_id_school_year_start` | row now exists → update branch |
 | Attendance first-insert | `ix_student_attendances_student_id_attend_date` | row now exists → update branch |
 | Alert episode first-raise | `ix_student_alerts_open_episode` | episode now exists → raise suppressed (DEC-18 owns this row) |
 
 The third was previously mapped straight to 409, which would have failed a whole 28-student batch on one racing student; the fourth is the same defect on the alert path and is decided in DEC-18. On exhaustion: 409 `ATTENDANCE.CONCURRENT_SUBMISSION`, except the fourth, which exhausts to 409 `ALERT.DUPLICATE_OPEN_EPISODE`.
 
-The retry predicate matches on constraint name and rethrows otherwise — matching on `DbUpdateException` alone would retry a permanent FK or check violation until the bound is exhausted.
+The retry predicate matches on constraint name and rethrows otherwise — matching on `DbUpdateException` alone would retry a permanent FK or check violation until the bound is exhausted. The names in that table are the shipped `HasDatabaseName` strings; conventions §5 carries the full registry and explains why a wrong name is silent rather than loud.
+
+**Recovery treats `ex.Entries` as a lower bound, not as the unit of work.** VC-29 pinned it for a three-entity batch, where it happened to be complete. VC-39 records the case this decision actually rests on: the handler keeps its own `Added` lists and sweeps them after processing `ex.Entries`, because an `Added` row EF did not name would otherwise survive into the next attempt and be re-read as a fresh race with itself.
 
 Because everything goes through the change tracker, the audit interceptor and soft-delete rewrite both run — unlike `ExecuteUpdate`/`ExecuteDelete`, which bypass the interceptor and hard-delete respectively (VC-11), and are banned.
 
@@ -435,6 +437,8 @@ Bold = graded minimum. Transitive closure of {F07, F08, F09} is {F00, F01a, F01a
 
 Every item below is required by two or more features. Left unassigned, each becomes N incompatible implementations.
 
+**Owners are as shipped**, not as originally allocated. Three rows moved during implementation and one artifact ended up in the wrong assembly; each is recorded on its row rather than quietly corrected, because *where* an artifact landed is what the next feature has to reason about.
+
 | Artifact | Owner | Consumers |
 |---|---|---|
 | `ICurrentUser`, `ISchoolScoped`, `WhereAuthorized`, `EnsureAuthorized` | F01a | every scoped slice |
@@ -442,17 +446,19 @@ Every item below is required by two or more features. Left unassigned, each beco
 | `BusinessRuleException`, `Error`, `NotFoundException`, `ConflictException`, `ConcurrencyConflictException` | F01a | all |
 | `ErrorCodes.Validation.cs`, `ErrorCodes.System.cs` seed + the flat-constant rename | F01a | all |
 | Error envelope, `CustomizeProblemDetails`, `UseStatusCodePages`, camelCase path transform, `WithApi()` | F01a | all |
-| `PagedResponse<T>` + `PageInfo` + `?page/?pageSize` binding | F01a | F02, F05, F08, F09, F10, F11 |
+| `PagedResponse<T>` + `PageInfo` + `?page/?pageSize` binding, and `PagingRules` (the 1/50/200 constants, O-42) — `features/Paging/` | F01a | F02, F03, F04, F05, F06, F08, F09, F10 |
+| `KeysetResponse<T>` + `KeysetPageInfo` + `SubmissionCursor` — the keyset envelope and opaque cursor (O-05, O-06). Namespace `features.Paging`, but the **files sit under `features/AttendanceSubmissions/`**: F11's implementation task's edit boundary excluded `features/Paging/`. Moving them is a file move with no code change, and until it happens the namespace and the folder disagree | F11 | F11 today; any second keyset route |
 | `SaveChangesAsync` override translating `PostgresException` | F01a | F07 |
-| Constraint-name → error-code registry (F01a ships it injectable; the feature authoring a constraint adds its row) | F01a | F01c, F01d, F03, F07 |
+| Constraint-name → error-code registry (F01a ships it injectable; the feature authoring a constraint adds its row). Shipped as `SchemaConstraintErrors.Mappings` in `infra.persistence.postgre`, with `Names` exposed so a model test can assert every key names a real index — a wrong key is a *miss*, not an error (conventions §5, VC-36) | F01a | F01c, F01d, F03, F07, F10, **and both test-context factories** (O-57) |
 | `MapGroup("api/v1")` | F01a | all |
 | CLAUDE.md reference-slice caveat | F01a | all — it is the first file every workstream reads |
 | `SchoolYear` + converter (registered once in `ConfigureConventions`) | F01b | F07, F08, F09, F12 |
 | `AbsenceThreshold` default constant (V-26) | F01b | F07, F09 |
 | `AlertEvaluation` + `ChronicAbsenteeism` pure functions | F01b | F07, F09, F10, F12 |
 | `domain/Attendance/AbsenceRecount.cs` — the shared recount predicate | F07 | F07, F12 |
-| `IActivatable` + `ActivationPolicy` — the `IsActive` transition check | F02 | F03, F04, F05 |
-| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F01d, F03, F07, F08, F09, F10 |
+| `IActivatable` + `ActivationPolicy` — the `IsActive` transition check, in two forms: `Apply` for `DELETE` and `ApplyReplacement` for `PUT` (O-12) | F02 | F03, F04, F05 |
+| Attendance-code normalisation (`Normalise` — trim + `ToUpperInvariant`, V-27). **Shipped as `features.AttendanceCodes.AttendanceCodeValue` and belongs in `domain/AttendanceCodes/`.** Because `tools.seed` must not reference `features` (DEC-17), F00 carries a second copy, `tools.seed.SeedAttendanceCodeValue`, held in step by a parity test rather than by a comment. This is the one shared artifact that ended up with two implementations; the fix is a file move (O-58) | F03 | F00 today, F12 when built |
+| `Testcontainers` fixture calling `MigrateAsync` once per collection, plus `ContainerDbContextFactory` — which must supply the constraint registry, or every integration test sees a raw `DbUpdateException` where production sees a mapped 409 (O-57) | F01f | F01d, F07, F08, F09, F10. **Not F03** in practice: F03's container-tier constraint test was never written, and the check constraint is exercised only by F00's seed test |
 
 `F01f` gains **blocks-merge** edges to F01d, F03, F07, F08, F09 and F10 — each has an assertion that only the integration tier can satisfy, and each carries the edge in the table above. Not F04: its term-overlap rejection is application-enforced by decision, so nothing there needs a container.
 
@@ -465,6 +471,8 @@ Every item below is required by two or more features. Left unassigned, each beco
 **Edge semantics.** All edges are *blocks-start* except every F01f edge, which is *blocks-merge*: it blocks its dependant's merge rather than its start, because a slice is written against the handler tier and needs the container only to prove it. The one other blocks-merge edge belonged to F13, which is cancelled.
 
 **Concurrent development.** Files every model-touching feature edits: `IDbContext.cs`, `SparkrockRwcDbContext.cs`, `Migrations/SparkrockRwcDbContextModelSnapshot.cs`, `features/ServiceExtensions.cs`. Rules: **migrations are authored only in F01c and F01d** — a slice needing a schema change goes back to the model owner, and a non-empty `migrations:` front-matter field requires the migration owner's sign-off. One migration in flight at a time; regenerate the snapshot on rebase rather than hand-merging. `ErrorCodes` is partitioned per area so slices add files, not lines (conventions §5).
+
+*As shipped, four migrations exist, not three.* `Init` (scaffold), `ReferenceModel` (F01c), `AttendanceModel` (F01d) — and `AlertSchoolWorklistIndex`, which drops `ix_student_alerts_school_id` and creates `ix_student_alerts_school_id_school_year_start`. That fourth one is F01d's own specification being completed after the fact: F01d §5 declared the index and the first cut of `StudentAlertConfiguration` omitted it, which F10 found and reported rather than fixed, correctly, since it is F01d's to author. Every feature spec still declares `migrations: []` except F01c's and F01d's, so the ownership rule held; what did not hold is the assumption that a migration owner finishes in one migration. A model owner reopening its own schema is a fourth migration, not a fourth author.
 
 **F12 is deferred.** The legacy import is **not implemented in this shipment** and its
 specification, plan and tasks remain live and unchanged. This is a scope decision, not a
@@ -489,7 +497,10 @@ struck. F12's documents are **not** struck, and nothing that depends on them has
 What a later session needs to know: F12 is the only remaining consumer of `IAuditOverride`'s
 legacy-timestamp path, and F12's §10 records that this path is currently **unreachable** — DEC-21's
 internal setters mean no assembly outside `infra.persistence.postgre` can populate `CreatedAt`. That
-gap is unchanged and is the first thing to resolve when the feature is picked up.
+gap is unchanged and is the first thing to resolve when the feature is picked up. It is also carried
+in the open-findings register as **O-63**, because that register is what a later session reads first
+and a finding recorded only inside the deferred feature's own §10 is a finding nobody meets until
+they are already committed.
 
 **F13 is cancelled.** `TestEntity` and its two slices stay in the codebase. The original argument for removing it last — that its tests are the only regression net over the interceptor, the reflective filter and the InMemory factory while F01a rewires them — is also the argument for keeping it: that coverage is the only coverage of those mechanisms that does not depend on a business feature, so it keeps testing them in isolation from whatever the attendance model becomes.
 
@@ -513,4 +524,4 @@ Recorded rather than silently defaulted. Each blocks the feature named.
 | Q-02 | Source timezone of legacy `DATETIME` values (VC-19) | F12 | business |
 | Q-03 | Data volumes: schools, students, years of history, rows per table | F12 strategy, batch caps | business |
 | Q-04 | Business sign-off on the twelve ● divergences | cutover | business |
-| Q-05 | Whether cross-school absence disclosure (DEC-16) is authorised for all roles or a named subset — the row-level history F08 returns as much as the aggregate F09 returns | F08, F09 | business |
+| Q-05 | Whether cross-school absence disclosure (DEC-16) is authorised for all roles or a named subset — the row-level history F08 returns as much as the aggregate F09 returns, **and `entries[].totalAbsences` in F07's response body**, which is the same cross-school figure returned on the *write* path and was named by neither DEC-16 nor this question until the shipment was reconciled (O-62) | F07, F08, F09 | business |

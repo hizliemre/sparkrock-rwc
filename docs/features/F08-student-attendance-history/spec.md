@@ -199,8 +199,10 @@ states the rule; this is its implementation:
   the two payloads are identical by construction; the named test in tasks.md asserts it anyway,
   because a future `NotFoundException(code, message)` overload would break it silently.
 - DEC-16 records the rejected alternative — "authorised for the current school **or** any row's
-  school" — as an existence-and-prior-relationship oracle, and logs it as **V-28**. *(V-28 has no row
-  in legacy-analysis §4; see plan.md, "Conflicts found in the canonical documents".)*
+  school" — as an existence-and-prior-relationship oracle, and logs it as **V-28**. *(V-28 does have a
+  row in legacy-analysis §4, naming F08, F09 and F10; the parenthetical that used to say otherwise
+  predated the row and contradicted this spec's own front-matter. Closed as O-54.)* F08's half is
+  verified by `GetStudentAttendanceHistoryHandlerTests.Handle_WhenStudentTransferred_AuthorisesAgainstCurrentSchool`.
 - A `IsSystemAdmin` caller passes the check unconditionally (`EnsureAuthorized`'s short-circuit). The
   stub returns `IsSystemAdmin = true`, so this check **cannot be exercised over HTTP** until
   authentication exists — handler-tier only, with a non-admin `FakeCurrentUser`.

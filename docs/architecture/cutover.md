@@ -1,8 +1,16 @@
 # Cutover runbook
 
-The divergence log is written as a cutover-gated artifact — thirty entries, twelve requiring named business acceptance. This document is the gate. The numbers are counted from [legacy-analysis.md §4](legacy-analysis.md), which states both; if they disagree, the log is right and this line is stale.
+The divergence log is written as a cutover-gated artifact — thirty entries, twelve requiring named business acceptance. This document is the gate. The numbers are counted from [legacy-analysis.md §4](legacy-analysis.md), which states both; if they disagree, the log is right and this line is stale. *Both were recounted from the log after the shipment closed and are correct: 30 rows, 12 carrying ● in the `#` column.*
+
+> **This runbook cannot be executed today, and the reason is not a gate.** F12, the legacy import, is
+> **deferred** — its specification is live and unchanged, and nothing that depends on it has been
+> unwound (design §5), but the tool steps 2 and 5 run does not exist. Every precondition, abort
+> condition and rollback below stands as written; what is missing is the importer, not a decision.
+> Steps 0, 1, 4, 8 and 9 are executable without it; steps 2, 3, 5 and 6 are not.
 
 **Nothing here can run until [`design.md` §6](design.md) open questions Q-01 through Q-05 are answered.** They are business inputs, not engineering defaults.
+
+**Twenty-nine routes shipped and are green** (1659 unit tests, 59 integration tests). What that does *not* mean is recorded in design §1: every endpoint is anonymous, so P-5 is the precondition that decides whether any of the rest is worth doing.
 
 ---
 
@@ -11,7 +19,7 @@ The divergence log is written as a cutover-gated artifact — thirty entries, tw
 | # | Precondition | Owner | Evidence |
 |---|---|---|---|
 | P-1 | All twelve ● divergences signed off by name and date in [legacy-analysis.md §4](legacy-analysis.md) — the gate is "every row whose `#` cell carries a ●", not a number this document remembers | business | signed rows |
-| P-2 | Q-01 (retention), Q-02 (legacy timezone), Q-03 (volumes), Q-05 (disclosure scope) answered | business | design.md §6 |
+| P-2 | Q-01 (retention), Q-02 (legacy timezone), Q-03 (volumes), Q-05 (disclosure scope — now covering F07's response body as well as F08's and F09's reads, O-62) answered | business | design.md §6 |
 | P-3 | Read-only SQL Server login provisioned, limited to `db_datareader` on the five source tables | infra | connection test |
 | P-4 | Legacy connection string in a secret store; absent from every tracked file | infra | secret scan |
 | P-5 | Real authentication in place, or explicit written acceptance that the system runs without it | business | — |

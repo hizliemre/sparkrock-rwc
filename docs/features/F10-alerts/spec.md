@@ -214,13 +214,15 @@ Consequences, stated because they are user-visible:
   to collapse duplicates, not the database, and F10 has no notification layer, so both are shown.
 - **A former school loses the alert it raised**, including one it was mid-way through triaging. That
   is V-28's accepted cost, restated here at the point it becomes visible.
-- **The driving index is `Student (SchoolId, IsActive)` (design §3).** As built, `student_alerts`
-  carries only `ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start`
-  — the school-keyed index F01d's spec listed
-  (`ix_student_alerts_school_id_school_year_start`) **was not shipped**. That is convenient rather
-  than planned: the predicate F10 issues is on `students.school_id`, so the plan is `students`
-  filtered, then a nested loop into `student_alerts` on `student_id`. F10 makes no `EXPLAIN` claim;
-  risk R-2.
+- **The driving index is `Student (SchoolId, IsActive)` (design §3).** F10 issues its predicate on
+  `students.school_id`, so the plan is `students` filtered, then a nested loop into `student_alerts`
+  on `student_id`. F10 makes no `EXPLAIN` claim; risk R-2.
+  *Since merged:* the school-keyed index F01d's spec listed,
+  `ix_student_alerts_school_id_school_year_start`, **has now shipped** — migration
+  `AlertSchoolWorklistIndex`, replacing the single-column `ix_student_alerts_school_id`. This
+  paragraph said it "was not shipped" and is corrected. It changes nothing F10 does: F10 does not
+  filter on `alert.SchoolId` by decision (DEC-16), so the index serves F07's raise/auto-resolve path
+  and F12's reconciliation report, not this query.
 
 `WhereAuthorized(currentUser)` is therefore **not** used on the alert query: it would apply the
 predicate to `alert.SchoolId`, which is the reading this section rejects. Scope is asserted with
@@ -442,19 +444,20 @@ own.
    front-matter carries **both**, with F01f as *blocks-merge* (mirroring how F01f blocks F07's merge
    rather than its start): F10's handler-tier work can start against F01d alone. design.md §5's
    table should gain the edge.
-3. **V-08's `Verified by` names a file that F01b does not create.** It cites
-   `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse`; F01b's tasks.md
-   places its alert tests in `tests/features.tests/Domain/AlertRulesTests.cs` and names none of them
-   `ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse`. One of the two must move. F10 does not
-   own V-08's F01b half and does not change it — it is reported so the cross-reference test's failure
-   is not mistaken for an F10 defect.
-4. **F01d's spec lists an index its implementation did not ship.** F01d §5 declares
-   `ix_student_alerts_school_id_school_year_start`; `StudentAlertConfiguration` as merged declares
-   only `ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start`. F10
-   does not need it (§3 filters on `students.school_id`), so F10 does not request it — but F07's
-   raise/auto-resolve path and F12's reconciliation report both filter on `alert.school_id`, and one
-   of them should decide whether the spec or the implementation is right. Reported, not resolved:
-   the index is F01d's to author.
+3. ~~**V-08's `Verified by` names a file that F01b does not create.**~~ **Resolved — the citation was
+   right and this conflict was wrong.** `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse`
+   exists, in `tests/features.tests/Domain/AlertRulesTests.cs`. The conflict was raised by matching
+   the divergence log's *class* name against F01b's *file* name; conventions §6 puts more than one
+   class in a file (`<Slice>ValidatorTests` and `<Slice>HandlerTests`), so file and class names are
+   not expected to agree and a cross-reference check that compares them would be checking the wrong
+   thing.
+4. ~~**F01d's spec lists an index its implementation did not ship.**~~ **Resolved: the index shipped.**
+   `ix_student_alerts_school_id_school_year_start` is now declared in `StudentAlertConfiguration` and
+   created by migration `AlertSchoolWorklistIndex`, which drops the single-column
+   `ix_student_alerts_school_id` in its favour. It is deliberately **unfiltered**, unlike the episode
+   index: a partial index conditioned on `is_deleted` would be unusable to the importer and to any
+   audit path reading past the soft-delete filter. F10 still does not use it (§3 filters on
+   `students.school_id`); it serves F07 and F12.
 
    The related, larger point stands regardless: DEC-16 assigns access by `Student.SchoolId`, so F10
    makes no query-plan claim, and if alert volumes make the student join expensive the repair is an

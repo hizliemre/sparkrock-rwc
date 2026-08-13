@@ -103,7 +103,10 @@ window is a single round trip on a two-user action, which is why it is not being
 `students.school_id = @p`, joined to alerts. As merged, `student_alerts` carries only
 `ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start` — the latter
 serves the join but not the school filter, and F01d's spec'd
-`ix_student_alerts_school_id_school_year_start` was never shipped (spec, conflict 4). The plan is
+`ix_student_alerts_school_id_school_year_start` had not been shipped at the time this risk was
+written. *It has since shipped* (migration `AlertSchoolWorklistIndex`; spec, conflict 4), which
+does not change the risk: F10 filters on `students.school_id`, so the school-keyed alert index is
+not on this query's path. The plan is
 `students` filtered by `Student (SchoolId, IsActive)` (design §3), then a nested
 loop into `student_alerts` on `student_id`. That is fine at any plausible per-school alert volume,
 and Q-03 (data volumes) is unanswered, so a number cannot be put on it. F10 therefore makes **no**

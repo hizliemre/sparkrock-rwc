@@ -39,6 +39,8 @@ constraint=ix_student_attendance_summaries_student_id_school_year_start
 
 Any locking strategy still needs a separate first-insert path.
 
+*The constraint name above is the probe's, captured verbatim. The shipped index is `ix_summaries_student_id_school_year_start` — see conventions §5, which carries the registry keys and why a wrong one fails silently.*
+
 ## VC-04 — Optimistic concurrency is expressible through the port
 
 Verified end to end. The token is configured in `infra.persistence.postgre`; `features` sees only `SaveChangesAsync` and `DbUpdateConcurrencyException`, which **is** in `Microsoft.EntityFrameworkCore`:
@@ -334,3 +336,61 @@ InMemory GetColumnType() -> InvalidCastException: Unable to cast 'InMemoryTypeMa
 ```
 
 `GetColumnName()` returns the property name rather than throwing, so a relational assertion pointed at the in-memory model fails with "expected xmin, got Version" — which reads as a misconfigured token when it is only the wrong harness. Model-shape assertions build the Npgsql model offline; they never use the in-memory factory.
+
+## VC-39 — `DbUpdateException.Entries` is scoped to the failing command, not the batch
+
+VC-29 pinned `Entries` for a *three-entity* unit of work and found it complete (count 3). That number is the whole batch only because the batch was three rows. F07 measured the case DEC-14 actually depends on — a first-insert `23505` on `ix_student_attendances_student_id_attend_date` inside a **28-row** submission — because if `Entries` names only the row that collided, then a recovery driven by `ex.Entries` alone detaches one `Added` entity and leaves twenty-seven tracked into the next attempt, where the re-read produces a second instance per key and the retry reads its own leftovers as a fresh race.
+
+Measured by `SaveDailyAttendanceIntegrationTests.Handle_WhenAnotherSchoolInsertsAttendanceFirst_SavesTheWholeBatchOnAttemptTwo` (`tests/features.integration.tests/Attendance/SaveDailyAttendanceTests.cs`), which captures `ConcurrencyConflictException.Entries.Count` on the first failure through an `OnSaveFailed` hook and asserts the whole batch lands on attempt two:
+
+```
+attempts                    = 2
+rows persisted              = 28
+createdCount / updatedCount = 27 / 1
+```
+
+**The captured count is not recorded in a committed artifact, and this entry does not claim a value for it.** The assertion is `entriesOnFirstFailure >= 1` and the measured number is interpolated into an xUnit failure message, which a green run never emits. F07's plan (R-2) asked for the number to be written here; that step is still open in F07's tasks. Until it is, the only thing pinned above VC-29 is that the test path exercises it.
+
+What *is* load-bearing and *is* tested is the design that does not depend on the number. `SaveDailyAttendance` keeps its own `AttemptState` — `AddedAttendance`, `AddedSummaries`, `AddedAlerts` — and `RecoverAsync` runs `ex.Entries` first, then sweeps its own lists for anything EF did not name:
+
+```csharp
+// 3. The entities this attempt added that EF did not name.
+foreach (StudentAttendance attendance in state.AddedAttendance)
+    if (!detached.Contains(attendance))
+        dbContext.StudentAttendances.Remove(attendance);
+```
+
+`IDbContext` exposes no `ChangeTracker` and no `Entry()` (VC-29), so the handler cannot ask EF what it is tracking; the second loop is the only thing standing between an unnamed `Added` row and a retry that fails on its own leftovers. Treat `Entries` as a lower bound, never as the unit of work.
+
+## VC-40 — `Guid.CompareTo` translates to a bare `uuid` comparison, and the cursor lands in `Filter:`
+
+C# declares no `<` on `Guid`, so a `(SubmittedAt, Id)` keyset predicate has only one form that compiles:
+
+```csharp
+logs = logs.Where(log => log.SubmittedAt < cursorAt
+                         || (log.SubmittedAt == cursorAt && log.Id.CompareTo(cursorId) < 0));
+```
+
+Npgsql renders `CompareTo` as a plain `uuid` comparison with **no cast**. `KeysetPagingTests.Keyset_PredicateTranslatesToSql` (`tests/features.integration.tests/AttendanceSubmissions/KeysetPagingTests.cs`) pins the shape over `ToQueryString()` and, critically, pins the negative:
+
+```
+contains      "submitted_at <"
+contains      "submitted_at ="
+matches       \w+\.id < @
+does NOT contain  "::text"
+does NOT contain  "::character"
+```
+
+The `::text` ban is the load-bearing half. `row.Id.ToString()` also produces a running query, while emitting a `uuid`→`text` cast that makes the composite index unusable — a keyset scan silently degraded to a sequential one, which is the entire thing keyset buys. `Keyset_GeneratedSqlOrdersByBothColumns` pins `ORDER BY \w+\.submitted_at DESC, \w+\.id DESC` alongside it.
+
+**The honest limit, and it is the reason this entry exists rather than an acceptance tick.** `Keyset_ScanUsesTheCompositeIndex` runs a real `EXPLAIN` (600 logs for the plan school plus 20 decoy schools × 200, then `ANALYZE`; `SET enable_seqscan = off` deliberately *not* used, because forcing the plan makes the assertion vacuous). The plan observed is
+
+```
+Index Scan Backward using ix_submission_logs_school_id_submitted_at_id
+  Index Cond: (school_id = …)
+  Filter:     <the cursor comparison>
+```
+
+The ordering and the tenant predicate are served by the index and nothing is sorted — but the cursor comparison is a **`Filter:`**, not an **`Index Cond:`**, so the scan walks past the rows before the cursor rather than seeking to them. Deep paging is cheaper than `OFFSET` and is **not** constant-cost. Making it an index condition needs a row-value comparison, `(submitted_at, id) < (@at, @id)`, which LINQ cannot express.
+
+Two fidelity notes, so this entry is not read as stronger than its evidence. The test asserts only that the index name appears in the plan and that `Seq Scan on attendance_submission_logs` does not; the node type and the `Index Cond` / `Filter` split above are recorded in the test's own remarks as the author's observation of the plan, and are not machine-asserted. And no verbatim `ToQueryString()` output is committed anywhere — the SQL is pinned by the six fragment assertions listed above, not by a captured string, which is a weaker form of evidence than VC-13's and VC-30's captured SQL blocks.
