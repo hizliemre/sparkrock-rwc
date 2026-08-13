@@ -12,6 +12,8 @@ migrations:  []
 
 # F01a — Kernel
 
+Per design.md §5: the `BaseEntity`/`SoftDeletableEntity` split and audit-field encapsulation, `ICurrentUser` and scope, `TimeProvider` registration, interceptor rewiring plus lifetime and the delete guard, `IAuditOverride`, the deployment guard, the error envelope and `WithApi()`, `MapGroup("api/v1")`, `23505` translation, and the existing-test migration.
+
 Fourteen shared artifacts that twelve later workstreams consume. Every one of them, left unowned, becomes N incompatible implementations; every signature below is therefore a contract, not a sketch. Where this document is vague, a downstream slice will guess.
 
 F01a authors **no entity and no migration**. The `BaseEntity` change in DEC-20/DEC-21 is deliberately column-neutral for the one entity that exists today, so `Migrations/SparkrockRwcDbContextModelSnapshot.cs` must be byte-identical after this feature. That is an acceptance criterion, not an expectation.
@@ -24,7 +26,7 @@ Three mechanisms in the scaffold are load-bearing and currently wrong in ways th
 
 - The audit interceptor hardcodes `Guid.Empty` and calls `DateTimeOffset.UtcNow` (DEC-03, D-04). Nothing records who wrote a row and no test can control the clock.
 - `IAuditableEntity` declares seven `{ get; internal set; }` members and `BaseEntity` re-declares all seven `public`, voiding the restriction (DEC-21). Tests hand-set `CreatedAt` and `IsDeleted` today.
-- Every `BaseEntity` carries three soft-delete columns and a `!IsDeleted` query filter, including entities that must never be soft-deleted (DEC-20, VC-08).
+- Every `BaseEntity` carries three soft-delete columns and a `!IsDeleted` query filter, including entities that must never be soft-deleted (DEC-20, VC-08). Soft-deleting a reference entity is silently possible and instantly zeroes every projection through it (VC-08).
 
 And three do not exist at all: tenant scope (DEC-15), the error envelope (conventions §2), and the paging envelope (conventions §2 — the scaffold returns a bare array, which conventions names as "the pattern to copy").
 
@@ -206,11 +208,13 @@ Behaviour, one pass over `ChangeTracker.Entries<BaseEntity>()`:
 | `Added` | `CreatedBy = actor`; `CreatedAt = now` unless the override is active and `CreatedAt != default` |
 | `Modified` | `ModifiedAt = now`, `ModifiedBy = actor` |
 | `Deleted`, entity is `SoftDeletableEntity` | rewrite `State = Modified`; set `IsDeleted`, `DeletedAt`, `DeletedBy`, `ModifiedAt`, `ModifiedBy` |
-| `Deleted`, entity is not `SoftDeletableEntity` | **left alone — a real `DELETE`** |
+| `Deleted`, entity is not `SoftDeletableEntity` | **throw `InvalidOperationException`** |
 
 where `now = timeProvider.GetUtcNow()` and `actor = auditOverride.IsActive ? auditOverride.ActingUserId : currentUser.UserId`.
 
-The last row is the DEC-19 purge path and is stated rather than guarded: DEC-20 removed the interceptor guard on the grounds that soft-deleting a reference entity stops being *expressible*, which is true of the soft-delete columns but not of `Remove()`. Hard deletion of a `BaseEntity` remains possible and is the only erasure mechanism the model admits. F01a does not build a purge endpoint (O-20 is unassigned).
+The last row is DEC-20's delete guard, which the decision explicitly keeps and calls the load-bearing part: the split makes *soft* deletion inexpressible, not deletion. `Remove(school)` still compiles, and with no rewrite to catch it EF issues a real `DELETE` that cascades to the school's students. The rule is total rather than category-based — no marker interface, no per-type list, nothing to forget when an entity is added.
+
+Its companion, `OnDelete(DeleteBehavior.Restrict)` on every relationship, belongs to F01c/F01d: `TestEntity` has no relationships, so there is nothing for F01a to configure. Physical deletion has exactly one sanctioned path, DEC-19's audited purge, which no feature owns yet (O-20).
 
 `DateTimeOffset.UtcNow` disappears from `infra.persistence.postgre`, so F01a2's clock ban widens from `domain`/`features` to that project too.
 
@@ -397,7 +401,9 @@ Registered in this order; `UseExceptionHandler` invokes them in registration ord
 | | `NotFoundException` | 404 | its `ErrorCode`, no `violations`, the constant message |
 | | `ConflictException`, `ConcurrencyConflictException` | 409 | its `ErrorCode`, no `violations` |
 
-Both write through `IProblemDetailsService.TryWriteAsync`, never `Results.Problem(...)`, or the customisation is skipped. Both write a plain `ProblemDetails` with `violations` in `Extensions` — **never `ValidationProblemDetails`**, which serialises `errors` as an object at a colliding JSON pointer and is banned by F01a2's analyzer. The existing `ValidationExceptionHandler` uses exactly that banned type today and is rewritten here.
+Both write through `IProblemDetailsService.TryWriteAsync`, never `Results.Problem(...)`, or the customisation is skipped. Both write a plain `ProblemDetails` with `violations` in `Extensions` — **never `ValidationProblemDetails`**, which serialises `errors` as an object at a colliding JSON pointer. The existing `ValidationExceptionHandler` uses exactly that type today and is rewritten here.
+
+F01a2 shipped `BannedSymbols.txt` for `domain`, `features` and `infra.persistence.postgre` but not for `api`, so the `ValidationProblemDetails` / `Results.ValidationProblem` ban conventions §2 requires does not exist yet. **F01a adds `src/api/BannedSymbols.txt`** — the file that makes the envelope collision unrepeatable rather than merely fixed once.
 
 `violations` is present iff the failure is per-item. Omitted on 403/404/409/500.
 
@@ -543,7 +549,9 @@ New fakes in `tests/features.tests/Fakes/`, `internal sealed` per conventions §
 - `FakeCurrentUser : ICurrentUser` — mutable `UserId`, `DisplayName`, `AuthorizedSchoolIds`, `IsSystemAdmin`; `static FakeCurrentUser Default` is a system admin.
 - `ScopedRow : ISchoolScoped` — a bare `SchoolId` carrier for the `WhereAuthorized` tests.
 
-`Microsoft.Extensions.TimeProvider.Testing` (8.x, `net8.0`) is added to `features.tests.csproj` for `FakeTimeProvider`. `api.csproj` gains `<InternalsVisibleTo Include="features.tests" />` and `features.tests.csproj` a project reference to `api`, so `ViolationPath` and `ProblemDetailsDefaults` are testable without a new project.
+`Microsoft.Extensions.TimeProvider.Testing` (8.x, `net8.0`) is added for `FakeTimeProvider` — the version goes in `Directory.Packages.props` and `features.tests.csproj` carries `Include` only, per the central package management F01a2 shipped. `api.csproj` gains `<InternalsVisibleTo Include="features.tests" />` and `features.tests.csproj` a project reference to `api`, so `ViolationPath` and `ProblemDetailsDefaults` are testable without a new project.
+
+`Directory.Build.props` now sets `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild` and `AnalysisLevel=latest-Recommended`, and `.editorconfig` makes `IDE0007` (explicit types) and `IDE0161` (file-scoped namespaces) errors. Every file F01a adds is written to that standard from the first commit; there is no "clean it up later" window.
 
 ### The three tests that break, and the replacement idiom
 
@@ -583,7 +591,8 @@ F01a owns the reference-slice caveat (design.md §5 ownership table) — CLAUDE.
 - **No constraint rows in the registry** — F01c, F01d, F03, F07 each add their own alongside the `HasDatabaseName` that pins it.
 - **No `ErrorCodes` area beyond `Validation` and `System`.**
 - **No keyset paging** (F11), no per-route `.ProducesProblem` catalogue (O-04), no `Scope` column on the route table (O-03).
-- **No `.editorconfig`, `Directory.Build.props`, `Directory.Packages.props`, `BannedSymbols.txt`, `global.json`, `LICENSE`, secrets rotation, CORS allowlist, `NpgsqlDataSource` singleton, `AddDbContextFactory` removal, HTTPS/HSTS, `AllowedHosts`, rate limiting** — all F01a2. F01a's only contribution there is widening the existing clock ban to `infra.persistence.postgre`.
+- **No `.editorconfig`, `Directory.Build.props`, `Directory.Packages.props`, `global.json`, `LICENSE`, secrets rotation, CORS allowlist, `NpgsqlDataSource` singleton, `AddDbContextFactory` removal, HTTPS/HSTS, `AllowedHosts`, rate limiting** — all F01a2, and all already landed. F01a's only contributions to that machinery are the two banned-symbol gaps F01a2 deliberately left for it: the clock ban in `infra.persistence.postgre` (blocked until the interceptor stops calling `DateTimeOffset.UtcNow`) and `src/api/BannedSymbols.txt` (blocked until the envelope stops using `ValidationProblemDetails`).
+- **No `OnDelete(DeleteBehavior.Restrict)` configuration** — DEC-20 pairs it with the delete guard, but `TestEntity` has no relationships. F01c/F01d.
 - **No `SchoolYear`, threshold or alert rules** — F01b.
 - **No Testcontainers fixture and no integration project** — F01f. Every assertion here that depends on relational behaviour (the `SaveChangesAsync` catch actually firing, `WhereAuthorized` translating to `= ANY`, the `EndpointDataSource` walk) is deferred there rather than faked.
 - **No school-local "today"** — needs `School.TimeZoneId`, which arrives in F01c (DEC-12).
@@ -595,11 +604,11 @@ F01a owns the reference-slice caveat (design.md §5 ownership table) — CLAUDE.
 
 ## Acceptance criteria
 
-1. `dotnet build SparkrockRwc.sln` succeeds and `dotnet test tests/features.tests/features.tests.csproj` is green. Baseline is 80 tests today.
+1. `dotnet build SparkrockRwc.sln` succeeds with zero warnings under `TreatWarningsAsErrors`, and `dotnet test tests/features.tests/features.tests.csproj` is green. Baseline is 82 tests at the time of writing; do not assert a count.
 2. `git diff --exit-code src/infra.persistence.postgre/Migrations/` is clean — F01a produces no schema change.
 3. No type in `domain` or `features` can assign `CreatedAt`, `CreatedBy`, `ModifiedAt`, `ModifiedBy`, `IsDeleted`, `DeletedAt` or `DeletedBy`. A reflection test asserts none of the seven has a public setter on `BaseEntity` or `SoftDeletableEntity`.
 4. `BaseEntity` declares no soft-delete member, and the reflective loop applies a query filter to `SoftDeletableEntity` subtypes only.
-5. Inserting through `InMemoryDbContextFactory.Create(clock, user)` stamps `CreatedAt == clock.GetUtcNow()` and `CreatedBy == user.UserId`. `Remove()` + save produces a row that the default query filter hides and `Entries<T>` shows as `Modified`, not `Deleted`.
+5. Inserting through `InMemoryDbContextFactory.Create(clock, user)` stamps `CreatedAt == clock.GetUtcNow()` and `CreatedBy == user.UserId`. `Remove()` + save produces a row that the default query filter hides and `Entries<T>` shows as `Modified`, not `Deleted`. `Remove()` on a plain `BaseEntity` throws `InvalidOperationException` before any SQL is generated.
 6. With `IAuditOverride` active, writes are attributed to the override's user and an already-set `CreatedAt` survives the save.
 7. `WhereAuthorized` returns everything for a system admin, only in-scope rows otherwise, and nothing for a non-admin with an empty scope. `EnsureAuthorized` throws `NotFoundException`, never `ForbiddenException`, for an out-of-scope school.
 8. A random Guid and a real other-school id produce byte-identical 404 payloads (conventions §2's existence-oracle rule), because `NotFoundException` has no message parameter.

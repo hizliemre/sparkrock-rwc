@@ -12,23 +12,29 @@ Sequencing is dictated by one hard constraint: **the migration is authored once,
 
 The five entities are independent of each other except for the O-01 foreign key, so T01d-02 through T01d-06 run in parallel.
 
-## Preconditions from F01c
+## Preconditions
 
-F01c has no spec in `docs/features/` yet. F01d assumes it delivers, and T01d-01 verifies:
+F01d's only design.md §5 edge is F01c, so F01a and F01a2 arrive transitively through F01c's own `depends-on`. What F01d actually consumes, and from whom:
 
-| Artifact | Needed for |
-|---|---|
-| `SoftDeletableEntity : BaseEntity`, and the reflective loop in `SparkrockRwcDbContext` retargeted from `BaseEntity` to `SoftDeletableEntity` (DEC-20) | the entire §1 partition |
-| `School`, `Student`, `AttendanceCode`, `SchoolTerm` with pinned table names | every foreign key |
-| `SchoolYearToIntConverter` registered in `ConfigureConventions` (DEC-07, F01b ships the type) | `school_year_start` on two tables |
-| `ILegacyEntity` + `SharedConfiguration.ConfigureLegacy` (DEC-02) | `StudentAttendance.LegacyId` |
-| The DEC-20 partition model test and the DEC-02 legacy-index model test | T01d-09 extends both rather than writing them |
-| `ISchoolScoped` (F01a) | four of the five entities implement it |
-| Migration 1, merged, with a regenerated `SparkrockRwcDbContextModelSnapshot` | migration 2 stacks on it |
+| From | Artifact | Needed for |
+|---|---|---|
+| **F01a** | `SoftDeletableEntity : BaseEntity`, with `BaseEntity` no longer declaring `IsDeleted` / `DeletedAt` / `DeletedBy` (DEC-20) | the entire §1 partition |
+| **F01a** | The reflective loop in `SparkrockRwcDbContext.OnModelCreating` retargeted to `SoftDeletableEntity` | three of five F01d entities have no `IsDeleted` — a loop still keyed on `BaseEntity` throws at model build |
+| **F01a** | `AuditableEntityInterceptor` rewritten so the soft-delete rewrite applies only to `SoftDeletableEntity` | `Remove()` on a summary or log must not compile-or-corrupt |
+| **F01a** | `ISchoolScoped` | four of the five entities implement it, so F06–F11 get `WhereAuthorized` (VC-30) |
+| **F01a** | The injectable constraint-name → error-code registry and the `SaveChangesAsync` override (DEC-14 item 3) | F01d adds three rows to it (spec §7) |
+| **F01a** | `ErrorCodes` partitioned into per-area files | F01d adds two files and one line |
+| **F01b** | `ResolutionSource` | `StudentAlert.ResolutionSource` |
+| **F01c** | `School`, `Student`, `AttendanceCode`, `SchoolTerm` with `ToTable`-pinned names and `Restrict` foreign keys | every F01d foreign key |
+| **F01c** | `SchoolYearToIntConverter` registered in `ConfigureConventions` (F01b ships the type, F01c wires it) | `school_year_start` on two tables. F01c registers it with no consumer of its own — F01d is the first |
+| **F01c** | `ILegacyEntity` + `SharedConfiguration.ConfigureLegacy<T>(builder, tableName)` (DEC-02) | `StudentAttendance.LegacyId` |
+| **F01c** | `tests/features.tests/Model/ModelFactory.cs` — the never-connected Npgsql model harness | every F01d model test |
+| **F01c** | `Model/LifecyclePartitionTests.cs` (DEC-20) and `Model/LegacyEntityTests.cs` (DEC-02) | T01d-09 **extends** these; it does not write them. Both iterate `context.Model.GetEntityTypes()` rather than a hand-maintained list, so F01d's five entities enter their scope automatically |
+| **F01c** | Migration 1, merged, with a regenerated `SparkrockRwcDbContextModelSnapshot` | migration 2 stacks on it |
 
-If any is missing, F01d is blocked and the gap goes back to F01c — F01d does not build it, because a shared artifact with two authors becomes two incompatible artifacts (design §5).
+If any is missing, F01d is blocked and the gap goes back to its owner — F01d does not build a shared artifact it does not own (design §5).
 
-Today `SparkrockRwcDbContext.OnModelCreating` filters on `typeof(BaseEntity)` at line 31. Under DEC-20 that filter would apply to summaries, submission logs and anomalies, which have no `IsDeleted` — the reflective loop would throw at model build. This is the concrete way T01d-01 fails if F01c has not landed.
+The concrete way T01d-01 fails if F01a has not landed: the scaffold's `OnModelCreating` tests `typeof(BaseEntity)` (`SparkrockRwcDbContext.cs:31`), so `StudentAttendanceSummary`, `AttendanceSubmissionLog` and `LegacyImportAnomaly` would all be handed to `GetSoftDeleteFilter<T>()`, which reads `nameof(BaseEntity.IsDeleted)` — a property that no longer exists on them.
 
 ## Task graph
 
@@ -90,10 +96,13 @@ If F01f slips, the fallback is **not** to merge without G3. It is to merge with 
 | `Migrations/<ts>_AttendanceModel.cs` + `.Designer.cs` | `infra.persistence.postgre` | generated |
 | `Migrations/SparkrockRwcDbContextModelSnapshot.cs` | `infra.persistence.postgre` | regenerated |
 | `IDbContext.cs` | `infra.persistence.sql` | edited — four `DbSet`s |
+| `Model/StudentAttendanceModelTests.cs` … ×5 | `features.tests` | yes |
 | `Model/StudentAttendanceSnapshotTests.cs` | `features.tests` | yes |
 | `Model/ConcurrencyTokenTests.cs` | `features.tests` | yes |
 | `Model/MigrationTests.cs` | `features.tests` | yes |
-| `Model/EntityPartitionTests.cs` | `features.tests` | edited if F01c created it, else new |
+| `Model/LifecyclePartitionTests.cs` | `features.tests` | edited — F01c owns it |
+| `Model/LegacyEntityTests.cs` | `features.tests` | edited — F01c owns it |
+| `Model/ModelFactory.cs` | `features.tests` | **unchanged** — F01c's harness, reused |
 | `Schema/FilteredIndexTests.cs` | `features.integration.tests` | yes |
 | `Schema/CheckConstraintTests.cs` | `features.integration.tests` | yes |
 | `Schema/SummaryConcurrencyTests.cs` | `features.integration.tests` | yes |
@@ -104,16 +113,11 @@ Conventions §6 specifies test file layout for *slices* (`<Aggregate>/<Slice>Tes
 
 ## Model tests without a database
 
-Guard G2 and the DEC-20/DEC-02 model tests need **relational** metadata — column names, store types, index filters — which the InMemory provider does not produce. They therefore build the Npgsql model without ever opening a connection:
+Guard G2 and the DEC-20/DEC-02 model tests need **relational** metadata — column names, store types, index filters — which the InMemory provider does not produce. F01c ships the harness for exactly this: `tests/features.tests/Model/ModelFactory.cs`, `internal static`, `UseNpgsql(...).UseSnakeCaseNamingConvention()`, never connected. F01d's model tests read `ModelFactory.Create().Model`.
 
-```csharp
-new DbContextOptionsBuilder<SparkrockRwcDbContext>()
-    .UseNpgsql("Host=localhost;Database=model-only")
-    .UseSnakeCaseNamingConvention()
-    .Options
-```
+F01d does not build a second harness. Two model factories would drift from each other and from `ServiceExtensions.WithPostgre` / `DbContextFactory` — the naming-convention pair CLAUDE.md already flags — and F01c's `Model_UsesSnakeCasedPluralTableName` is the regression test that keeps the single one honest.
 
-`context.Model` is built lazily and offline; no server is contacted. This keeps G2, the index-name assertions and the `MaxLength` parity check in the fast tier where they will actually be run on every commit, and leaves the integration tier for assertions that genuinely need a server (conventions §6's tier rule). `SparkrockRwcDbContext` is `internal sealed` and `features.tests` already has `InternalsVisibleTo`.
+This keeps G2, the index-name assertions and the `MaxLength` parity check in the fast tier where they run on every commit, and leaves the integration tier for assertions that genuinely need a server (conventions §6's tier rule).
 
 `MigrationTests` (G1) reads the generated migration through `IMigrationsAssembly` / the migration's `Up` operations rather than by string-matching the `.cs` file — a text search for `"version"` would match `SparkrockRwcDbContextModelSnapshot` and comments.
 
@@ -161,7 +165,7 @@ No assertion is written at both tiers.
 
 **R-2 — A `uint` `IsRowVersion` shadow property may interact badly with EF InMemory.** VC-28 verified `uint`/`xmin` against live Postgres 17. Nothing in `verified-constraints.md` records what the InMemory provider does with a `uint` concurrency token whose `ValueGenerated` is `OnAddOrUpdate`. If it throws at model build, every existing handler-tier test that touches `InMemoryDbContextFactory` breaks the moment T01d-03 lands. **This is unverified and is the first thing T01d-03 discovers.** Mitigation if it does throw: do **not** configure the token conditionally per provider — a model that differs between tiers defeats the purpose of `InMemoryDbContextFactory` building the real context (CLAUDE.md). Instead, every summary-touching handler test moves to the integration tier and the fact is added to `verified-constraints.md` as a new `VC-xx`.
 
-**R-3 — F01c is unspecified.** F01d's entire foreign-key surface, the `SoftDeletableEntity` split and the converter registration are assumed, not read from a spec. T01d-01 exists to fail fast rather than discovering it at T01d-13.
+**R-3 — F01d's whole surface rests on two features that are specified but not yet built.** F01a owns the `SoftDeletableEntity` split, the retargeted reflective loop and the constraint registry; F01c owns the four reference entities, the converter registration and the model-test harness. Both specs exist and agree with this one — checked, name by name, against F01c's index table and its `ConfigureLegacy` signature — but agreement between documents is not delivery. T01d-01 exists to fail fast rather than discovering a mismatch at T01d-13, after five entities are written against an assumption.
 
 **R-4 — Three columns decided against features that do not exist.** O-01, O-06 and O-09 are resolved on reasoning about F07 and F11, not on their code. The asymmetry matters: adding a nullable column later is a cheap migration through F01d; **changing `idempotency_key`'s uniqueness scope after production data exists is not**, because a global-to-per-school widening is free and a per-school-to-global narrowing can fail on existing rows. The scope chosen (per school) is the widening-friendly direction deliberately.
 

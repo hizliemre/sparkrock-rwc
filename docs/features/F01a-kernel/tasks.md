@@ -10,6 +10,8 @@ Two tasks (T01a-06, T01a-14) have a build as their red rather than a test. That 
 
 **Startable immediately: T01a-01, T01a-02, T01a-05, T01a-11.**
 
+F01a2 has landed, so `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, `.editorconfig` (`IDE0007`, `IDE0161` as errors) and central package management are all in force. Every file below is written to that standard on the first commit.
+
 ---
 
 ### T01a-01 — Exception types and `Violation`
@@ -106,6 +108,7 @@ Then:
 3. `domain/TestEntity.cs` → `public sealed class TestEntity : SoftDeletableEntity`. **Deliberate** — see spec §2; it keeps `Handle_ExcludesSoftDeletedEntities` alive as the only regression net over the reflective loop, and keeps the column set identical so no migration is produced.
 4. `SparkrockRwcDbContext`: retarget the loop's `typeof(BaseEntity).IsAssignableFrom(...)` test and `GetSoftDeleteFilter<TEntity>`'s constraint to `SoftDeletableEntity`.
 5. `_SharedConfiguration.cs`: `Configure<T>` constraint `class, IAuditableEntity` → `BaseEntity`, four columns; new `ConfigureSoftDelete<T> where T : SoftDeletableEntity`, three columns. `TestEntityConfiguration` calls both.
+6. `AuditableEntityInterceptor`'s `EntityState.Deleted` branch stops compiling — it sets `IsDeleted`/`DeletedAt`/`DeletedBy` on an `EntityEntry<BaseEntity>`. Narrow it to `SoftDeletableEntity` here; the guard on everything else is T01a-07's, and the interceptor's clock and actor stay hardcoded until then.
 
 Step 5 is the one that bites: left constrained to the interface, the property lambdas bind to interface members and EF cannot map them once T01a-06 adds explicit implementations.
 
@@ -140,7 +143,7 @@ Green: the solution builds; `AuditMembers_HaveNoPublicSetter` passes; three test
 depends-on: [T01a-04, T01a-06]
 decisions: [DEC-03, DEC-21]
 
-Add `Microsoft.Extensions.TimeProvider.Testing` (8.x) to `features.tests.csproj`.
+Add `Microsoft.Extensions.TimeProvider.Testing` 8.x as a `PackageVersion` in `Directory.Packages.props` and a version-less `PackageReference` in `features.tests.csproj` — central package management is in force and a `Version` attribute on the reference fails the build.
 
 Tests in `tests/features.tests/Persistence/AuditableEntityInterceptorTests.cs`:
 
@@ -149,6 +152,7 @@ Tests in `tests/features.tests/Persistence/AuditableEntityInterceptorTests.cs`:
 - `SaveChanges_WhenAdded_LeavesModifiedAtNull` — V-21's premise: legacy's `LastUpdated` was `NOT NULL DEFAULT GETDATE()`
 - `SaveChanges_WhenModified_StampsModifiedAtAndModifiedBy`
 - `SaveChanges_WhenRemoved_RewritesToSoftDeleteUpdate` — assert the entry ends `Modified`, `IsDeleted` true, `DeletedAt`/`DeletedBy` set, and the row is invisible to a default query
+- `SaveChanges_WhenRemovingAnEntityThatIsNotSoftDeletable_Throws` — DEC-20's delete guard. Needs a throwaway `BaseEntity` subtype registered on a test-only model, since `TestEntity` is soft-deletable. `InvalidOperationException`, raised before any SQL is generated.
 - `SaveChanges_WhenAuditOverrideActive_AttributesToTheOverrideUser`
 - `SaveChanges_WhenAuditOverrideActive_PreservesAnExistingCreatedAt` — the import case in DEC-03
 
@@ -160,7 +164,7 @@ Then un-skip and rewrite the three tests from T01a-06, using exactly the idiom i
 
 Then implement:
 
-1. `AuditableEntityInterceptor(ICurrentUser, TimeProvider, IAuditOverride)`, behaviour table in spec §2. The non-soft-deletable `Deleted` case is left alone deliberately — a real `DELETE`, the DEC-19 purge path — and gets a comment saying so.
+1. `AuditableEntityInterceptor(ICurrentUser, TimeProvider, IAuditOverride)`, behaviour table in spec §2. The non-soft-deletable `Deleted` case **throws** — DEC-20's delete guard, which the decision keeps deliberately and which the "deleting a `School` stops being expressible" framing invites an implementer to remove. The exception message says which entity type and points at DEC-19's purge as the only sanctioned physical deletion.
 2. `WithPostgre()`: `AddSingleton(TimeProvider.System)`; `AddSingleton<AuditableEntityInterceptor>` → `AddScoped`. Injecting a scoped `ICurrentUser` into a singleton is a captive dependency; VC-18 verifies the scoped form resolves through the existing `AddDbContext((sp, o) => ...)` overload under `ValidateScopes`/`ValidateOnBuild`.
 3. `InMemoryDbContextFactory` — three overloads (spec §9), all registering the interceptor.
 
@@ -223,7 +227,8 @@ Then:
 2. Rewrite `api/ValidationExceptionHandler.cs` → `api/Errors/ValidationExceptionHandler.cs`: plain `ProblemDetails`, `errorCode = VALIDATION.FAILED`, a `violations` array in `Extensions` with `source: "body"`, `path` camelCased, `code` from `ValidationFailure.ErrorCode`. **`ValidationProblemDetails` is deleted from the codebase** — it serialises `errors` as an object at a colliding JSON pointer and F01a2's analyzer bans it.
 3. New `api/Errors/DomainExceptionHandler.cs` — `BusinessRuleException` 400, `ForbiddenException` 403, `NotFoundException` 404, `ConflictException`/`ConcurrencyConflictException` 409. Table in spec §5.
 4. Both write through `IProblemDetailsService.TryWriteAsync`, never `Results.Problem(...)`.
-5. Amend **conventions §2's status table** with the 403 row and the 404-tenancy/403-privilege rule (spec §6). This clears O-11.
+5. **Create `src/api/BannedSymbols.txt`** — `T:Microsoft.AspNetCore.Mvc.ValidationProblemDetails` and the `Results.ValidationProblem` / `TypedResults.ValidationProblem` members. F01a2 shipped banned-symbol files for `domain`, `features` and `infra.persistence.postgre` but not for `api`, so conventions §2's ban currently exists nowhere. `Directory.Build.props` already picks the file up by convention. **Probe:** reintroduce a `ValidationProblemDetails`, confirm the build fails, revert.
+6. Amend **conventions §2's status table** with the 403 row and the 404-tenancy/403-privilege rule (spec §6). This clears O-11.
 
 ---
 
@@ -318,9 +323,9 @@ Needs T01a-07 because without the interceptor `ModifiedAt` is never populated, a
 depends-on: [T01a-07]
 *blocks-merge on F01a2 T01a2-06*
 
-Red is the build. Add `DateTimeOffset.UtcNow` and `DateTime.Now` to `src/infra.persistence.postgre/BannedSymbols.txt`, rebuild, confirm it now passes — T01a-07 removed the interceptor's last call. Then probe: reintroduce a `DateTimeOffset.UtcNow` in that project, confirm the build fails, revert.
+Red is the build. `src/infra.persistence.postgre/BannedSymbols.txt` exists and bans `ExecuteDelete*` and `EnableSensitiveDataLogging` but deliberately carries **no clock entries**, because the interceptor still called `DateTimeOffset.UtcNow` when F01a2 was written. T01a-07 removed that call.
 
-F01a2's T01a2-06 scopes this ban to `domain` and `features` explicitly because the interceptor still calls it. That exemption dies with T01a-07. If F01a2 has not merged yet, this task becomes a one-line note in F01a2's `BannedSymbols.txt` instead; either way the exemption must not outlive its reason.
+Copy the five clock lines from `src/domain/BannedSymbols.txt` (`DateTime.Now`, `DateTime.UtcNow`, `DateTimeOffset.Now`, `DateTimeOffset.UtcNow`, `DateTime.Today`) into the postgre file, rebuild, confirm green. Then probe: reintroduce a `DateTimeOffset.UtcNow` in that project, confirm the build fails, revert.
 
 Also confirm the reverse direction:
 
@@ -344,11 +349,12 @@ grep -rn "ValidationProblemDetails" src/
 grep -rn "IsDeleted = \|CreatedAt = \|ModifiedAt = " tests/
 ```
 
-Expected: build clean, all tests green, migrations diff empty, last four greps empty.
+Expected: build clean with zero warnings under `TreatWarningsAsErrors`, all tests green, migrations diff empty, last four greps empty.
 
-Then the two probes from the plan:
+Then three deliberate-failure probes, because each of these mechanisms fails by doing nothing:
 
 1. `entity.CreatedAt = DateTimeOffset.UnixEpoch;` in a test → CS0272, revert.
 2. `ConnectionStrings:sparkrock-rwc` pointed at a non-loopback host with the flag set → host refuses to build, revert.
+3. `dbContext.Remove(someBaseEntity)` on a non-soft-deletable type → `InvalidOperationException`, revert.
 
 Finally, walk the spec's eighteen acceptance criteria one by one and confirm each has a named passing test, and update the `Verified by` column in the divergence log for **V-11** (`SoftDeleteFilterTests.Model_AppliesQueryFilterToSoftDeletableEntitiesOnly`) and **V-21** (`GetTestEntitiesHandlerTests.Handle_WhenModified_ProjectsLastUpdatedFromModifiedAt`). V-16 stays "no test possible; verified by inspection" — the deployment-guard tests verify the guard, not the attribution regression.

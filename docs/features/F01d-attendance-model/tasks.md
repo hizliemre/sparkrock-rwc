@@ -10,22 +10,28 @@ Tasks with no unmet `depends-on` are startable immediately. Edges are *blocks-st
 
 ---
 
-### T01d-01 — Preflight: verify the F01c preconditions
+### T01d-01 — Preflight: verify the F01a and F01c preconditions
 depends-on: []
 
-Not a code change. A gate, because F01c has no spec and everything below assumes seven of its artifacts (plan, "Preconditions from F01c").
+Not a code change. A gate, mirroring F01c's own `T01c-00`, because everything below assumes twelve artifacts from two features that are specified but not yet built (plan, "Preconditions").
 
 Run `dotnet build SparkrockRwc.sln` and confirm, by inspection:
 
-- `domain/Abstraction/SoftDeletableEntity.cs` exists and `BaseEntity` no longer declares `IsDeleted`, `DeletedAt`, `DeletedBy` (DEC-20).
-- `SparkrockRwcDbContext.OnModelCreating`'s reflective loop tests `typeof(SoftDeletableEntity)`, not `typeof(BaseEntity)`. It reads `typeof(BaseEntity)` today, at line 31 — under DEC-20 that would try to filter `StudentAttendanceSummary`, which has no `IsDeleted`, and throw at model build.
-- `School`, `Student`, `AttendanceCode`, `SchoolTerm` exist with pinned table names.
-- `SchoolYearToIntConverter` is registered in `ConfigureConventions`.
-- `ILegacyEntity` and `SharedConfiguration.ConfigureLegacy` exist.
-- `ISchoolScoped` exists (F01a).
+From **F01a**:
+- `domain/Abstraction/SoftDeletableEntity.cs` exists and `BaseEntity` no longer declares `IsDeleted`, `DeletedAt`, `DeletedBy` (DEC-20); audit members are `private set` with explicit interface implementations (DEC-21).
+- `SparkrockRwcDbContext.OnModelCreating`'s reflective loop tests `typeof(SoftDeletableEntity)`, not `typeof(BaseEntity)`. The scaffold reads `typeof(BaseEntity)` at line 31 — left there, it hands `StudentAttendanceSummary` to `GetSoftDeleteFilter<T>()`, which reads `nameof(BaseEntity.IsDeleted)`, a property the type no longer has.
+- `AuditableEntityInterceptor` rewrites `EntityState.Deleted` only for `SoftDeletableEntity`.
+- `ISchoolScoped` exists; the constraint-name → error-code registry and the `SaveChangesAsync` override exist and are injectable.
+
+From **F01c**:
+- `School`, `Student`, `AttendanceCode`, `SchoolTerm` exist with `ToTable`-pinned names, `Restrict` foreign keys and no navigation properties.
+- `SchoolYearToIntConverter` is registered in `ConfigureConventions` — F01c registers it with no consumer of its own, so F01d is the first thing that proves it works.
+- `ILegacyEntity` and `SharedConfiguration.ConfigureLegacy<T>(EntityTypeBuilder<T>, string tableName)` exist.
+- `tests/features.tests/Model/ModelFactory.cs`, `Model/LifecyclePartitionTests.cs` and `Model/LegacyEntityTests.cs` exist.
+- `AttendanceCode.Description` is `character varying(100)` — the source of the snapshot parity check in T01d-10.
 - Migration 1 is merged and `SparkrockRwcDbContextModelSnapshot.cs` reflects it.
 
-Any gap goes back to F01c. F01d does not build a shared artifact it does not own (design §5).
+Any gap goes back to its owner. F01d does not build a shared artifact it does not own (design §5).
 
 ---
 
@@ -33,7 +39,7 @@ Any gap goes back to F01c. F01d does not build a shared artifact it does not own
 depends-on: [T01d-01]
 divergences: [V-10, V-23]
 
-**Red.** `tests/features.tests/Model/StudentAttendanceModelTests.cs`, against the offline Npgsql model (plan, "Model tests without a database"):
+**Red.** `tests/features.tests/Model/StudentAttendanceModelTests.cs`, reading `ModelFactory.Create().Model` — F01c's never-connected Npgsql harness (plan, "Model tests without a database"). `InMemoryDbContextFactory` cannot serve these: it has no relational metadata and no naming convention.
 
 - `Model_StudentAttendanceMapsToStudentAttendances` — table name, and the thirteen columns of spec §2.1 with their store types and nullability.
 - `Model_StudentAttendanceHasNoAttendanceCodeNavigation` — `GetNavigations()` targets nothing of type `AttendanceCode`. This is the structural half of the D-02 invariant (spec §6).
@@ -44,7 +50,9 @@ Fails because the type does not exist.
 
 **Green.** `domain/Attendance/StudentAttendance.cs` — `public sealed class StudentAttendance : SoftDeletableEntity, ILegacyEntity, ISchoolScoped`, every non-nullable reference property `required` (conventions §3). `SubmissionId` is **not** added here; T01d-07 owns it.
 
-`Configurations/StudentAttendanceConfiguration.cs` — `ToTable("student_attendances", …)`, `SharedConfiguration.Configure`, `SharedConfiguration.ConfigureLegacy`, `MaxLength` on all three strings (DEC-06), `HasOne<T>().WithMany().HasForeignKey(...)` with `DeleteBehavior.Restrict` for `Student`, `School`, `AttendanceCode` and the nullable `SchoolTerm`, the two indexes above plus `ix_student_attendances_school_id_attend_date`, and `ck_student_attendances_minutes_late`.
+`Configurations/StudentAttendanceConfiguration.cs` — `ToTable("student_attendances", …)`, `SharedConfiguration.Configure(builder)`, `SharedConfiguration.ConfigureLegacy(builder, "student_attendances")` (the table name is a parameter, so the pinned index name cannot move when a class is renamed), `MaxLength` on all three strings (DEC-06), `HasOne<T>().WithMany().HasForeignKey(...).OnDelete(DeleteBehavior.Restrict)` for `Student`, `School`, `AttendanceCode` and the nullable `SchoolTerm`, with `HasConstraintName` pinned per spec §5; the `student_id`/`attend_date` index plus `ix_student_attendances_school_id_attend_date`; and `ck_student_attendances_minutes_late`.
+
+`Restrict` is explicit on every one. EF Core's default for a *required* relationship is `Cascade`, and under DEC-20 nothing intercepts a cascade on these tables.
 
 Do not re-declare indexes on `student_id`, `attendance_code_id` or `term_id` — EF creates FK indexes automatically and a duplicate is silent.
 
@@ -162,13 +170,23 @@ Table names are pinned by `ToTable` in each configuration, so this task does not
 ### T01d-09 — DEC-20 partition and DEC-02 legacy-index model tests
 depends-on: [T01d-08]
 
-Extend the two model tests F01c should already own; write them if it does not.
+F01c already owns `Model/LifecyclePartitionTests.cs` and `Model/LegacyEntityTests.cs`, and both iterate `context.Model.GetEntityTypes()` rather than a hand-maintained list — precisely so F01d's five entities enter their scope with no edit. This task is therefore mostly a **verification** task, not an authoring one.
 
-- `Partition_EveryEntityIsExactlyOneOfBaseOrSoftDeletable` — total and disjoint, and **query-filter presence matches the bucket** (DEC-20). With F01d's five entities: `StudentAttendance` and `StudentAlert` soft-deletable and filtered; `StudentAttendanceSummary`, `AttendanceSubmissionLog`, `LegacyImportAnomaly` in `BaseEntity` with no filter and no `is_deleted` column.
-- `Partition_OnlySoftDeletableTypesCarryAnIsDeletedIndexFilter` — scans every index filter in the model for `is_deleted` and asserts the owning type derives from `SoftDeletableEntity`. Design §3 states this rule; this is the mechanism.
-- `Legacy_EveryLegacyEntityHasAUniqueFilteredLegacyIdIndex` — now covers `StudentAttendance` (DEC-02).
+Run them and confirm the four DEC-20 assertions still hold with all five new entities in the model:
 
-**Verify** that the partition test would fail if `StudentAttendanceSummary` were made soft-deletable — flip it locally, watch it go red, revert. A partition test that passes vacuously is worse than none.
+- `Model_EveryEntityDerivesFromBaseEntity`
+- `Model_QueryFilterPresenceMatchesSoftDeletableBucket` — now `TestEntity`, `StudentAttendance` and `StudentAlert` filtered; `StudentAttendanceSummary`, `AttendanceSubmissionLog`, `LegacyImportAnomaly` not
+- `Model_OnlySoftDeletableEntitiesHaveSoftDeleteColumns`
+- `Model_OnlySoftDeletableEntitiesHaveIsDeletedIndexFilters` — the assertion that fails if the episode index's `is_deleted` term were copied onto the summary's index
+
+and the two DEC-02 assertions in `LegacyEntityTests`:
+
+- `Model_EveryLegacyEntityHasUniqueFilteredLegacyIdIndex` — now covers `StudentAttendance` with `ix_student_attendances_legacy_id`
+- `Model_EveryLegacyIdIsNullable`
+
+If any test does take a hand-maintained list, F01d adds its five types and the list is reported back to F01c as a defect — a list is the thing that goes stale.
+
+**Then verify the tests are not vacuous.** Make `StudentAttendanceSummary` derive from `SoftDeletableEntity` locally, confirm `Model_QueryFilterPresenceMatchesSoftDeletableBucket` goes red, revert. A partition test that passes vacuously is worse than none, and F01d is the first feature that puts entities in *both* buckets.
 
 ---
 

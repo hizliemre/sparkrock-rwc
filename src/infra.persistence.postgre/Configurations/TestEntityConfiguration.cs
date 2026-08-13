@@ -10,5 +10,6 @@ internal sealed class TestEntityConfiguration: IEntityTypeConfiguration<TestEnti
     {
         builder.HasKey(e => e.Id);
         SharedConfiguration.Configure(builder);
+        SharedConfiguration.ConfigureSoftDelete(builder);
     }
 }

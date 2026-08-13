@@ -78,13 +78,15 @@ Project-file changes: `domain.csproj` gains `InternalsVisibleTo("infra.persisten
 
 **T01a-14 is *blocks-merge* on F01a2's T01a2-06, not blocks-start.** F01a2's `BannedSymbols.txt` scopes the clock ban to `domain` and `features` precisely because `AuditableEntityInterceptor` still calls `DateTimeOffset.UtcNow`. Once T01a-07 lands, that exemption is dead and the ban widens. Neither feature blocks the other's start; whichever merges second does the widening.
 
-## The F01a / F01a2 collision
+## Inherited from F01a2, which has already landed
 
-Both features declare `depends-on: []` and both are startable today. They collide in exactly one place and it is worth naming before someone hits it at merge time.
+F01a2 is in the tree: `Directory.Build.props` (`TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, `AnalysisLevel=latest-Recommended`), `.editorconfig` with `IDE0007`/`IDE0161` as errors, central package management, `LICENSE`, the secrets move, and per-project `BannedSymbols.txt`. Consequences for this feature:
 
-F01a2's T01a2-06 bans `ValidationProblemDetails` and `Results.ValidationProblem`. `src/api/ValidationExceptionHandler.cs` constructs `ValidationProblemDetails` today. **If F01a2 merges first, `api` does not build until F01a's T01a-09 lands.** Two options, decided here rather than discovered: either T01a-09 merges before T01a2-06, or T01a2-06 ships with a temporary file-scoped exemption removed by T01a-09. The first is preferred — the window is short and an exemption that outlives its reason is how bans erode.
+- **Every new file must be warning-clean, explicit-typed and file-scoped from the first commit.** There is no cleanup window; the build fails.
+- **New packages go in `Directory.Packages.props`.** `Microsoft.Extensions.TimeProvider.Testing` is the only one F01a adds; `features.tests.csproj` carries `Include` only.
+- **Two banned-symbol gaps were left for F01a on purpose, and both must be closed here.** `infra.persistence.postgre/BannedSymbols.txt` has no clock entries because the interceptor still calls `DateTimeOffset.UtcNow` — T01a-14. And there is **no `src/api/BannedSymbols.txt` at all**, so conventions §2's `ValidationProblemDetails` ban does not exist anywhere; the current `ValidationExceptionHandler` would sail past it. T01a-09 creates that file. An exemption that outlives its reason is how bans erode, and a ban that was never written is worse.
 
-Second, smaller: F01a2's acceptance criterion "48 tests" is already stale (the suite is 80 today, after F01b), and F01a changes the count again. Neither feature should assert a test count.
+F01a2's acceptance criterion "48 tests" was already stale when written (the suite is 82 today) and F01a changes the count again. No feature should assert a test count.
 
 ## Risks
 
@@ -96,6 +98,7 @@ What could still go wrong:
 
 - **`SharedConfiguration.Configure<T>`'s constraint.** Constrained to `IAuditableEntity`, its `builder.Property(m => m.CreatedAt)` lambdas bind to the interface member, and once `BaseEntity` implements those explicitly EF cannot map the expression. The failure is a model-build exception, not a silent one — but it fires on the first `SaveChangesAsync` of every test, which reads as "the split broke everything". Fix is one constraint change; the mitigation is knowing it is coming.
 - **EF and private setters.** DEC-21 asserts EF materialises them without configuration, which is true for properties EF discovers by convention. Explicit interface implementations are *not* discovered — that is the point — so the mapping must resolve to the public property. If a configuration ever writes `Property<DateTimeOffset>("CreatedAt")` by string it will still work; if it writes an interface-typed lambda it will not.
+- **The delete guard is easy to drop by accident.** DEC-20 was amended to keep it and to call it the load-bearing half: the split makes soft deletion inexpressible, not deletion, so `Remove(school)` compiles and — with EF's default `Cascade` on a required relationship — physically deletes the school's students. An implementer reading only the "stops being expressible" framing will delete the guard as redundant, which trades a recoverable mistake for an unrecoverable one. It is an explicit test in T01a-07.
 - **`TestEntity`'s bucket contradicts DEC-20's partition test.** DEC-20 says only `StudentAttendance` and `StudentAlert` are soft-deletable, and its model test asserts the partition is total and disjoint against §3's table, which does not list `TestEntity`. F01a keeps `TestEntity` soft-deletable on purpose — design.md §5 records that its tests are the only regression net over the reflective loop during this exact window — so the F01c/F01d partition test must exempt it by name. Written down here because the person authoring that test will not otherwise know.
 
 **Registering the interceptor in `InMemoryDbContextFactory` changes every handler test, not the three that break.** `CreatedBy` stops being `Guid.Empty`, `CreatedAt` stops being `default`, and `Remove()` stops deleting. Only three tests assert on those values today, so only three fail — but any test written between now and this landing will need the same migration.
@@ -121,7 +124,7 @@ grep -rn "ValidationProblemDetails" src/
 grep -rn "DateTimeOffset.UtcNow\|DateTime.Now" src/domain src/features src/infra.persistence.postgre
 ```
 
-Expected: build clean, tests green, migrations diff empty, and the last four greps return nothing.
+Expected: build clean with zero warnings under `TreatWarningsAsErrors`, tests green (82 today, more after), migrations diff empty, and the last four greps return nothing.
 
 Then two deliberate-failure probes, because the two mechanisms most likely to be quietly wrong are the two that fail by doing nothing:
 

@@ -241,6 +241,32 @@ Every name is pinned with `HasDatabaseName` so the conventions §5 error mapping
 
 Foreign-key indexes that EF creates automatically (`student_id`, `attendance_code_id`, `term_id`) are **not** re-declared; declaring them again produces a duplicate index EF will not notice.
 
+### Keys and foreign keys — names pinned
+
+F01c pins primary- and foreign-key names as well as index names; F01d follows, so conventions §5's `any FK → 23503 → <AREA>.REFERENCE_MISSING` row has stable keys to resolve against.
+
+| Name | Kind | Definition |
+|---|---|---|
+| `pk_student_attendances` | primary key | `(id)` |
+| `fk_student_attendances_students_student_id` | foreign key | → `students(id)`, `RESTRICT` |
+| `fk_student_attendances_schools_school_id` | foreign key | → `schools(id)`, `RESTRICT` |
+| `fk_student_attendances_attendance_codes_attendance_code_id` | foreign key | → `attendance_codes(id)`, `RESTRICT` |
+| `fk_student_attendances_school_terms_term_id` | foreign key | → `school_terms(id)`, `RESTRICT`, nullable |
+| `fk_student_attendances_attendance_submission_logs_submission_id` | foreign key | → `attendance_submission_logs(id)`, `RESTRICT`, nullable |
+| `pk_student_attendance_summaries` | primary key | `(id)` |
+| `fk_student_attendance_summaries_students_student_id` | foreign key | → `students(id)`, `RESTRICT` |
+| `fk_student_attendance_summaries_schools_school_id` | foreign key | → `schools(id)`, `RESTRICT` |
+| `pk_student_alerts` | primary key | `(id)` |
+| `fk_student_alerts_students_student_id` | foreign key | → `students(id)`, `RESTRICT` |
+| `fk_student_alerts_schools_school_id` | foreign key | → `schools(id)`, `RESTRICT` |
+| `pk_attendance_submission_logs` | primary key | `(id)` |
+| `fk_attendance_submission_logs_schools_school_id` | foreign key | → `schools(id)`, `RESTRICT` |
+| `pk_legacy_import_anomalies` | primary key | `(id)` |
+
+**`RESTRICT` is explicit on every one.** EF Core's default for a *required* relationship is `Cascade`; left at the default, deleting one `School` physically deletes its attendance history — and under DEC-20 nothing intercepts it, because the interceptor's soft-delete rewrite applies to `SoftDeletableEntity` and a cascade is emitted as SQL, not through the change tracker. `legacy_import_anomalies` appears only for its primary key: it has no foreign keys at all (§2.5).
+
+Primary keys are client-generated `Guid`s with no `gen_random_uuid()` default, matching F01c — EF assigns the value before insert, which is what lets F07 set `SubmissionId` on attendance rows in the same `SaveChangesAsync` that inserts the log row (VC-32).
+
 Three of these deserve their reason stated:
 
 **`ix_student_alerts_…` must include `is_deleted = false`.** DEC-18 states it and design §3 repeats it. Without the term, soft-deleting an open alert leaves a row that is invisible to every query (the reflective filter hides it) but still occupies the unique slot — so the episode can never be re-raised, for that student, that type, that year, that school, permanently, with no error and nothing to look at. `Index_StudentAlert_AllowsReRaiseAfterSoftDelete` is the test that fails if the term is dropped.
@@ -316,7 +342,7 @@ New constants, per the one-file-per-area rule (conventions §5): `ErrorCodes.Ale
 1. Every column in §2 exists in migration 2 with exactly the stated Postgres type and nullability.
 2. `student_attendance_summaries` has **no** `version` column, and `Model_SummaryConcurrencyTokenIsUInt` asserts `uint` / `xmin` / `OnAddOrUpdate` / `IsConcurrencyToken`.
 3. `SaveChanges_WhenTwoContextsUpdateSameSummary_SecondThrows` passes against Testcontainers Postgres.
-4. Every index in §5 exists with exactly the stated name, column order, uniqueness and filter text, verified by reading `pg_indexes` at the integration tier.
+4. Every index in §5 exists with exactly the stated name, column order, uniqueness and filter text, verified by reading `pg_indexes` at the integration tier; every key and foreign key carries its pinned name and `ON DELETE RESTRICT`.
 5. `Index_StudentAlert_AllowsReRaiseAfterSoftDelete` passes — the `is_deleted` term in the episode filter is present and effective.
 6. `Index_StudentAttendance_AllowsNewRowAfterSoftDelete` passes.
 7. Every check constraint in §5 rejects its out-of-range value with SqlState `23514`.

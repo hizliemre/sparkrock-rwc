@@ -27,8 +27,8 @@ internal sealed class SparkrockRwcDbContext(DbContextOptions<SparkrockRwcDbConte
             if (rootType != entityType)
                 continue;
 
-            // soft delete filter - applies to all BaseEntity types
-            if (!typeof(BaseEntity).IsAssignableFrom(entityType.ClrType)) continue;
+            // soft delete filter - applies only to SoftDeletableEntity types (DEC-20)
+            if (!typeof(SoftDeletableEntity).IsAssignableFrom(entityType.ClrType)) continue;
             MethodInfo? softDeleteMethod = typeof(SparkrockRwcDbContext)
                 .GetMethod(nameof(GetSoftDeleteFilter), BindingFlags.Public | BindingFlags.Static);
 
@@ -43,12 +43,12 @@ internal sealed class SparkrockRwcDbContext(DbContextOptions<SparkrockRwcDbConte
     }
     
     public static LambdaExpression GetSoftDeleteFilter<TEntity>()
-        where TEntity : BaseEntity
+        where TEntity : SoftDeletableEntity
     {
         ParameterExpression entityParam = Expression.Parameter(typeof(TEntity), "e");
 
         // e.IsDeleted
-        MemberExpression isDeletedProperty = Expression.Property(entityParam, nameof(BaseEntity.IsDeleted));
+        MemberExpression isDeletedProperty = Expression.Property(entityParam, nameof(SoftDeletableEntity.IsDeleted));
 
         // !e.IsDeleted
         UnaryExpression notDeleted = Expression.Not(isDeletedProperty);

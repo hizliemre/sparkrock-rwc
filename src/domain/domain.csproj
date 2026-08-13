@@ -4,6 +4,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <!-- The audit interceptor lives there and stamps through IAuditableEntity/ISoftDeletable,
+           whose setters are internal so application code cannot. -->
+      <InternalsVisibleTo Include="infra.persistence.postgre" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Microsoft.EntityFrameworkCore" />
     </ItemGroup>
 
