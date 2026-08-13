@@ -7,34 +7,36 @@ dotnet run --project src/host      # Postgres container + API + dashboard (needs
 dotnet test                        # full suite
 ```
 
-Detail lives in [`docs/architecture/design.md`](docs/architecture/design.md) and [`docs/architecture/legacy-analysis.md`](docs/architecture/legacy-analysis.md); per-feature specs in [`docs/features/`](docs/features/).
+> Authentication is deferred behind a stub. **This build must not run against real student data** — every endpoint is anonymous. A startup guard enforces it outside Development.
+
+Detail: [`docs/architecture/design.md`](docs/architecture/design.md), [`docs/architecture/legacy-analysis.md`](docs/architecture/legacy-analysis.md). Legacy source vendored at [`docs/legacy/`](docs/legacy/); per-feature specs in [`docs/features/`](docs/features/).
 
 ## Architectural decisions
 
-**Vertical slices over a layered service tier.** One file per use case holds its request, validator, handler and endpoint. The legacy system's logic was one 120-line stored procedure doing six jobs; slicing by use case keeps each unit small enough to test in isolation.
+**Vertical slices over a layered service tier.** One file per use case holds its request, validator, handler and endpoint. The legacy logic was one 122-line stored procedure doing seven jobs — XML parse, school-year derivation, term resolution, attendance upsert, summary recount, alert evaluation, submission logging. Slicing by use case keeps each unit small enough to test in isolation.
 
-**The domain depends on a port, not on EF.** Handlers take `IDbContext`, defined in a project that references no database library. The Postgres implementation is referenced only by the composition root. Swapping providers, or standing a slice up against a fake, touches nothing in `features`.
+**The domain depends on a port.** Handlers take `IDbContext`. The port hides the *provider*, not EF Core — `IDbContext` exposes `DbSet<T>`, so `features` does reference EF Core. What it never references is Npgsql, which stays behind the composition root.
 
-**Fix legacy defects, log every divergence.** Two stored-procedure bugs corrupt data across students: `@ExistingID` and `@IsAbsent` are never reset inside the cursor, so after the first student with an existing record, every later student without one overwrites that same row and inherits its absence flags. Reproducing this faithfully would mean writing tests that assert corruption. Each intentional difference is recorded in a divergence log so the delta from legacy stays auditable.
+**Fix legacy defects, log every divergence.** Bug-for-bug parity was never available: the save procedure calls an unqualified scalar UDF (`SchoolYear(@AttendDate)`), which T-SQL rejects with error 195, aborting mid-cursor after the first student's row is already committed. Every call saves one student and reports failure. Each intentional difference is recorded in a divergence log with a verification path and a sign-off marker where it changes school operations.
 
-**One transaction per submission.** The legacy batch wrote attendance, summaries and alerts with no transaction, so a mid-batch failure left summaries disagreeing with the rows they aggregate. A MediatR pipeline behavior wraps commands; the whole submission commits or none of it does.
+**Two independent stale-variable bugs corrupt data across students.** `@ExistingID` is never assigned inside the cursor loop, so once any student has an existing record, every later student without one re-updates *that* row instead of getting their own. Separately, `@IsAbsent`/`@IsExcused` go stale whenever a code is unrecognised, so an unknown code inherits the previous student's absence flags. Different triggers, both silent.
 
-**Absence counts stay materialised, recalculated in-transaction.** The summary table is preserved for its read contract, but the per-student recount inside the cursor is replaced by one set-based recount for all affected students. Summary and attendance are never observably inconsistent.
+**One transaction per submission, recount through the change tracker.** An earlier design specified set-based SQL; that proved unbuildable — `ExecuteUpdate`/`ExecuteDelete` are not reachable from `features`, EF Core 8 has no upsert API, and both bypass the audit interceptor while `ExecuteDelete` hard-deletes. Instead: two saves inside one explicit transaction, everything through the change tracker so audit and soft-delete invariants hold.
 
-**JSON, not XML.** The legacy payload was built by string concatenation with no escaping — a note containing a quote corrupted the document. A typed request model removes the failure class rather than defending against it.
+**Reference data uses `IsActive`, not soft delete.** Soft-deleting a principal makes its dependents vanish from projections through the query filter's `INNER JOIN` — a deleted attendance code would erase historical attendance from view.
 
-**Guid keys with a nullable `LegacyId`.** Guid ids satisfy the shared entity base; the original integer id is retained per row so imported data can be reconciled against the legacy database.
+**School year stored as an integer.** The legacy `VARCHAR(9)` format is no external contract, and if the September boundary proves wrong at cutover, correcting an integer is arithmetic rather than rewriting every stored string and the index built on it.
 
 ## Ambiguities and how they were handled
 
-**`SchoolYear()` does not exist.** The save procedure calls a scalar function absent from every supplied artifact, while the surrounding code computes the same thing inline. Treated as the inline rule — September starts the year — and centralised into one value object, since legacy spells it out three times and they must not drift. *First thing to re-verify at cutover.*
+**`SchoolYear()` is both missing and uncallable** — and the predicate that uses it (`SchoolYear(@AttendDate) = @SchoolYear`) references no column at all. Both operands derive from the same parameter, so it filters nothing: every stored absence total is a lifetime count, not a school-year count. Legacy summaries and alerts are therefore recomputed on import, never copied.
 
-**Eight referenced objects were never supplied**, including the `Schools` and `SchoolTerms` tables and the roster procedure `sp_GetStudentsForAttendance`. Their shape was inferred from usage: column lists from how results are consumed, nullability from defensive `ISNULL`/`Nz` wrappers. Each inference is recorded as an explicit assumption.
+**Nine referenced database objects were never supplied**, including `Schools`, `SchoolTerms`, the roster procedure, and an `Attendance` object the Crystal formula references that does not exist in the schema. Shapes were inferred from usage — column lists from how results are consumed, nullability from defensive `ISNULL`/`Nz` wrappers — and each inference is marked as an assumption rather than a fact.
 
-**Denormalised absence flags — bug or intent?** `IsAbsent`/`IsExcused` live on both the code table and every attendance row. Kept, and treated as deliberate: it snapshots a code's meaning at save time, so redefining a code does not silently rewrite history.
+**Denormalised absence flags — bug or intent?** Kept, and treated as deliberate: it snapshots a code's meaning at save time so redefining a code cannot rewrite history. Recorded as a write-once invariant with a test, because a future maintainer "fixing the inconsistency" would cause exactly what it prevents.
 
-**Alerts that never resolve.** The schema has `ResolvedDate`/`ResolvedBy` and the save procedure tests them for duplicate suppression, but nothing ever writes them — resolution presumably lived in a screen not supplied. Implemented as manual resolution plus auto-resolve when a correction drops a student below threshold.
+**Alerts that never resolve.** The schema has `ResolvedDate`/`ResolvedBy` and the save procedure tests them, but nothing writes them. Implemented as append-only resolution records distinguishing manual from automatic, rather than nullable columns that overwrite each other.
 
-**No acting user.** Legacy stored a database login in a string column; the target types it as a Guid. Resolved behind an `ICurrentUser` port with a stub, so authentication drops in by swapping one registration.
+**No acting user.** Legacy stored a database login in a string column; the target types it as a Guid. Resolved behind an `ICurrentUser` port — but recorded honestly as a *regression* in audit fidelity until real authentication lands, since a constant identity records less than legacy did.
 
 **Reporting is out of scope** — the Crystal Reports definition was not supplied.
