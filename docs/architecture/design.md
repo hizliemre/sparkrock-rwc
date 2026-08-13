@@ -255,9 +255,22 @@ public abstract class BaseEntity : IAuditableEntity          // Id + created/mod
 public abstract class SoftDeletableEntity : BaseEntity       // + IsDeleted, DeletedAt, DeletedBy
 ```
 
-The reflective loop targets `SoftDeletableEntity`. Deleting a `School` stops being *expressible* rather than being blocked three ways, four dead columns leave every reference table, and `IReferenceEntity`, the loop skip, the interceptor guard and the `CHECK` constraint all disappear.
+The reflective loop targets `SoftDeletableEntity`. Four dead columns leave every reference table, and `IReferenceEntity`, the loop skip and the `CHECK (is_deleted = false)` constraint all disappear.
 
 Only `StudentAttendance` and `StudentAlert` derive from `SoftDeletableEntity`. Everything else derives from `BaseEntity`.
+
+**The interceptor guard stays, and is now the load-bearing part.** An earlier draft of this decision claimed the split made deleting a `School` inexpressible. It does not: it makes *soft*-deleting inexpressible. `Remove(school)` still compiles, and with no soft-delete rewrite to catch it, EF issues a **real** `DELETE` — and because EF's default for a required relationship is `Cascade`, that physically deletes the school's students. Dropping the guard as redundant would have replaced a recoverable mistake with an unrecoverable one.
+
+The rule becomes total rather than category-based, which is what the split buys:
+
+```
+EntityState.Deleted on a SoftDeletableEntity  → rewritten to a soft delete
+EntityState.Deleted on anything else          → InvalidOperationException
+```
+
+No marker interface, no per-type list, nothing to forget when a new entity is added. Backed by `OnDelete(DeleteBehavior.Restrict)` on every relationship, so a cascade cannot be configured into existence later.
+
+Physical deletion has exactly one sanctioned path: DEC-19's audited purge.
 
 A model test asserts the partition is **total and disjoint**: every entity is in exactly one bucket, and query-filter presence matches the bucket. §3's Lifecycle column is asserted against it, not merely documented.
 
@@ -299,7 +312,7 @@ Base class is the lifecycle (DEC-20): `SoftDeletableEntity` gets the soft-delete
 | `School` | `BaseEntity` | `Name`, `IsActive`, `AbsenceAlertThreshold` (nullable), **`TimeZoneId`** (DEC-12) |
 | `Student` | `BaseEntity` | `SchoolId`, `FirstName`, `LastName`, `Grade` (nullable), `IsActive` |
 | `AttendanceCode` | `BaseEntity` | `Value` (unique, unfiltered), `Description`, `IsAbsent`, `IsExcused`, `IsActive` |
-| `SchoolTerm` | `BaseEntity` | `SchoolId`, `Name`, `StartDate`, `EndDate`, **`IsActive`** — non-overlapping per school among *active* terms (V-19) |
+| `SchoolTerm` | `BaseEntity` | `SchoolId`, `Name`, `StartDate`, `EndDate`, **`IsActive`** — non-overlapping per school among *active* terms (V-19). Bounds are **closed** `[StartDate, EndDate]`, the one deliberate exception to the half-open rule in conventions §2, because D-03 preserves legacy's `BETWEEN`. F04 and F06 must not read `EndDate` as exclusive. |
 | `StudentAttendance` | soft-deletable | `StudentId`, `SchoolId`, `AttendDate`, `TermId?`, `AttendanceCodeId` (FK), snapshot: `AttendCode`, `AttendCodeDescription`, `IsAbsent`, `IsExcused` (D-02, V-23); `MinutesLate`, `Notes` (≤500) |
 | `StudentAttendanceSummary` | append/update | `StudentId`, `SchoolId` (school of record, V-17), `SchoolYearStart`, `TotalAbsences`, concurrency token (DEC-14) |
 | `StudentAlert` | soft-deletable | `StudentId`, `SchoolId`, `AlertType`, `SchoolYearStart`, `AbsenceCount`, `ThresholdAtRaise`, `ResolvedAt?`, `ResolvedBy?`, `ResolutionSource?`, `ResolutionReason?` |
@@ -310,7 +323,7 @@ Base class is the lifecycle (DEC-20): `SoftDeletableEntity` gets the soft-delete
 
 **Alert messages are not stored pre-rendered.** `AbsenceCount` and `ThresholdAtRaise` are stored; the message renders at the presentation edge. A stored rendered string becomes stored XSS the moment any text-derived value enters it, and is unlocalisable regardless.
 
-**Migrated entities implement `ILegacyEntity`** (DEC-02). Reference entities implement `IReferenceEntity` (DEC-11).
+**Migrated entities implement `ILegacyEntity`** (DEC-02). There is no reference-entity marker — DEC-20 replaced it with the base-class split, and the interceptor guard keys on `SoftDeletableEntity` rather than on a category.
 
 ### Constraints and indexes
 
@@ -395,7 +408,7 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 | # | Feature | Depends on |
 |---|---|---|
 | F00 | Seed data — attendance codes, one school with terms and a roster | F01c |
-| F01a | Kernel: `ICurrentUser` + scope, `TimeProvider` registration, interceptor rewiring and lifetime, `IAuditOverride`, deployment guard, error envelope + `BusinessRuleException`/`NotFoundException`/`ConflictException` + `WithApi()`, `MapGroup("api/v1")`, `23505` translation, existing-test migration | — |
+| F01a | Kernel: **`BaseEntity`/`SoftDeletableEntity` split and the audit-field encapsulation (DEC-20, DEC-21)**, `ICurrentUser` + scope, `TimeProvider` registration, interceptor rewiring, lifetime and the delete guard, `IAuditOverride`, deployment guard, error envelope + `BusinessRuleException`/`NotFoundException`/`ConflictException` + `WithApi()`, `MapGroup("api/v1")`, `23505` translation, existing-test migration | — |
 | F01a2 | Enforcement + hygiene: `.editorconfig` (with `EnforceCodeStyleInBuild`), `Directory.Build.props`, `Directory.Packages.props`, banned-API analyzer, `global.json`, `LICENSE`, `.gitignore`; rotate the **three** committed passwords and move the design-time connection string to user secrets + env (updating `DbContextFactory` and CLAUDE.md in the same commit); CORS allowlist, `NpgsqlDataSource` singleton, drop `AddDbContextFactory`, HTTPS/HSTS, `AllowedHosts` | — |
 | F01b | `SchoolYear` value object + converter + threshold constant + alert/chronic evaluation functions + boundary tests | — |
 | F01c | Reference model + migration 1: `School` (incl. `TimeZoneId`), `Student`, `AttendanceCode`, `SchoolTerm` (incl. `IsActive`) | F01a, F01a2, F01b |

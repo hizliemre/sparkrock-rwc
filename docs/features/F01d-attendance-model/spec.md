@@ -12,7 +12,7 @@ migrations:  [AttendanceModel]
 
 # F01d — Attendance model and migration 2
 
-Five entities, five configurations, eleven indexes, five check constraints, one migration, one concurrency token. No handlers, no endpoints, no validators — F01d is the schema every graded-minimum feature reads and writes.
+Five entities, five configurations, twelve explicit indexes, five check constraints, one migration, one concurrency token. No handlers, no endpoints, no validators — F01d is the schema every graded-minimum feature reads and writes.
 
 `migrations` is non-empty and needs no external sign-off: design.md §5 names F01d as one of the three migration owners.
 

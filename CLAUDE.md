@@ -30,7 +30,13 @@ dotnet ef database update   --project src/infra.persistence.postgre --startup-pr
 
 Nothing calls `Database.Migrate()` at startup — schema changes must be applied with `database update` explicitly.
 
-`dotnet run --project src/host` requires Docker and the `pg-password` Aspire parameter (stored in user secrets, id `b9c41a98-f987-4292-b35b-75416f5a75a6`). Postgres is pinned to host port **5433** with a persistent container + data volume, so it survives AppHost restarts.
+`dotnet run --project src/host` requires Docker and the `pg-password` Aspire parameter:
+
+```bash
+dotnet user-secrets set "Parameters:pg-password" "<value>" --project src/host
+```
+
+No tracked file carries a credential. `src/host/appsettings.Development.json` holds a placeholder only — the value must come from user secrets. Postgres is pinned to host port **5433** with a persistent container + data volume, so it survives AppHost restarts.
 
 In Development the API redirects `/` to the Scalar UI at `/scalar/v1` (OpenAPI doc served by Swashbuckle at `/swagger/v1/swagger.json`).
 
@@ -95,9 +101,15 @@ Logging uses source-generated `[LoggerMessage]` on a `static partial` class (see
 Two different keys are in play:
 
 - **Runtime**: `sparkrock-rwc` — injected by Aspire from `postgres.AddDatabase("sparkrock-rwc")`. `WithPostgre()` throws if it is missing.
-- **Design-time**: `SparkrockRwc` — read by `DbContextFactory` from `src/infra.persistence.postgre/appsettings.json` (copied to output on build).
+- **Design-time**: `SparkrockRwc` — read by `DbContextFactory` from **user secrets or the environment only**. Set `ConnectionStrings__SparkrockRwc`, or `dotnet user-secrets set "ConnectionStrings:SparkrockRwc" "<value>" --project src/infra.persistence.postgre`. It previously read a tracked `appsettings.json` that carried a password and was copied into every consumer's build output.
 
 `src/api/appsettings.Development.json` also defines `SparkrockRwc`, which the running app does **not** read; running the API outside Aspire needs `ConnectionStrings__sparkrock-rwc` set.
+
+## Build enforcement
+
+`Directory.Build.props` sets `TreatWarningsAsErrors` and `EnforceCodeStyleInBuild`, so the `.editorconfig` rules are build errors rather than IDE hints: explicit types over `var` (IDE0007) and file-scoped namespaces (IDE0161). `Directory.Packages.props` holds every package version centrally. Per-project `BannedSymbols.txt` files block raw SQL in `features`, `ExecuteDelete`/`ExecuteUpdate` in the persistence layer, and clock reads in `domain`/`features` — see `docs/architecture/conventions.md` §7.
+
+The reference slice `TestEntity` predates these conventions and violates several; it is removed by F13. Prefer `src/domain/ValueObjects/SchoolYear.cs` and its tests as the current example.
 
 ## Testing
 

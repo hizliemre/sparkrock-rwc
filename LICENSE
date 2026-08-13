@@ -1,0 +1,42 @@
+Copyright (c) 2026
+
+This software is licensed under the Reciprocal Public License 1.5 (RPL-1.5).
+
+Canonical text: https://opensource.org/license/rpl-1-5
+
+--------------------------------------------------------------------------------
+ACTION REQUIRED BEFORE DISTRIBUTION
+--------------------------------------------------------------------------------
+
+The verbatim RPL-1.5 text has NOT been vendored into this file. It must be
+pasted here, unmodified, from the canonical source above before this software is
+distributed or offered as a service.
+
+Why this file exists in this state: DEC-13 accepted RPL-1.5 as a consequence of
+depending on MediatR 14.2.0, which is licensed RPL-1.5 or commercially. The
+obligation is recorded so it cannot be forgotten; the text is not reproduced from
+memory, because a licence quoted approximately is worse than one quoted by
+reference.
+
+--------------------------------------------------------------------------------
+WHAT THIS LICENCE REQUIRES OF YOU
+--------------------------------------------------------------------------------
+
+RPL-1.5 differs from ordinary copyleft in one way that matters here: the
+reciprocal obligation attaches on DEPLOYMENT AS A SERVICE, not only on shipping
+binaries. If this API is hosted for third parties rather than run internally, the
+source of this codebase -- not merely modifications to MediatR -- must be made
+available to them under compatible terms.
+
+Two consequences follow, both recorded in DEC-13:
+
+  1. Anything committed to this repository, including its history, is
+     publishable by obligation. Committed credentials are therefore a
+     disclosure, not untidiness.
+
+  2. Closing the source later requires revisiting DEC-13 and either purchasing
+     the Lucky Penny commercial licence, pinning MediatR to 12.5.0 (Apache-2.0,
+     the last permissively licensed release), or replacing MediatR with a
+     hand-rolled dispatcher.
+
+See docs/architecture/design.md, DEC-13.

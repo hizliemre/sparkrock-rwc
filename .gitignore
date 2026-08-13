@@ -113,3 +113,39 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+
+# --- .NET ---
+# Enumerated rather than delegated to the standard Visual Studio template, which does NOT ignore
+# appsettings.*.json -- the exact gap that let a database password reach three tracked files.
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+TestResults/
+*.user
+*.suo
+*.userprefs
+.vs/
+
+# --- Secrets ---
+# DEC-13 makes anything in this repository publishable by obligation, so a credential committed
+# here is a disclosure rather than untidiness.
+.env
+.env.*
+*.pfx
+*.p12
+*.key
+*.pem
+secrets*.json
+appsettings.*.local.json
+appsettings.Production.json
+appsettings.Staging.json
+*.publishsettings
+PublishProfiles/
+
+# --- Migration and cutover output ---
+# The reconciliation report is student-itemised and includes safeguarding status; quarantine
+# extracts carry PII. Neither belongs in version control (O-19, O-22).
+/artifacts/
+/import-output/
+/reconciliation/

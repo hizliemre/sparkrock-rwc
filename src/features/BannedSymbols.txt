@@ -1,0 +1,14 @@
+# Raw SQL, ExecuteUpdate and ExecuteDelete all live in the Relational assembly, which features cannot
+# currently reach at all (VC-01). The ban exists to catch the day someone adds that reference to make
+# one call work: raw SQL reinstates L-04 (DEC-06), ExecuteUpdate bypasses the audit interceptor and
+# ExecuteDelete hard-deletes, defeating soft delete (VC-11).
+T:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions;No raw SQL, ExecuteUpdate or ExecuteDelete in features. Add a named method to IDbContext instead (DEC-06, DEC-14).
+T:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions;No raw SQL in features. Add a named method to IDbContext instead (DEC-06).
+
+# Clock reads belong behind TimeProvider so tests are deterministic and the September boundary is
+# resolved in the school timezone rather than the server one (DEC-03, DEC-12).
+P:System.DateTime.Now;Use TimeProvider.
+P:System.DateTime.UtcNow;Use TimeProvider.
+P:System.DateTimeOffset.Now;Use TimeProvider.
+P:System.DateTimeOffset.UtcNow;Use TimeProvider.
+P:System.DateTime.Today;Use TimeProvider and the school timezone (DEC-12).

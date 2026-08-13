@@ -1,0 +1,63 @@
+﻿<Project>
+
+    <!--
+      Central package management. Every version lives here; project files carry Include only.
+
+      This replaces the hand-synced Microsoft.EntityFrameworkCore version that four csproj files
+      previously repeated, one of them with a comment explaining that the versions had to match or
+      consumers silently resolved an older Relational assembly.
+    -->
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <!--
+          Transitive pinning is deliberately OFF. Turning it on surfaced NU1109 across api, features
+          and host: MediatR 14.2.0 and Aspire 13.4.6 both pull Microsoft.Extensions.* 10.x, so the 8.x
+          versions declared below are already being overridden transitively. That is worth knowing and
+          worth deciding on, but aligning the whole Extensions surface to 10.x is a version decision,
+          not a packaging one. Left off so resolution is byte-identical to before this change.
+        -->
+        <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    </PropertyGroup>
+
+    <ItemGroup Label="Aspire">
+        <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.4.6" />
+        <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
+    </ItemGroup>
+
+    <ItemGroup Label="Entity Framework Core">
+        <PackageVersion Include="EFCore.NamingConventions" Version="8.0.3" />
+        <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
+        <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.30" />
+        <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.30" />
+        <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.30" />
+        <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    </ItemGroup>
+
+    <ItemGroup Label="Extensions">
+        <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="8.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.Configuration.UserSecrets" Version="8.0.1" />
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+        <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    </ItemGroup>
+
+    <ItemGroup Label="Web and features">
+        <PackageVersion Include="Carter" Version="8.2.1" />
+        <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="11.11.0" />
+        <PackageVersion Include="MediatR" Version="14.2.0" />
+        <PackageVersion Include="MediatR.Contracts" Version="2.0.1" />
+        <PackageVersion Include="Scalar.AspNetCore" Version="2.16.11" />
+        <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    </ItemGroup>
+
+    <ItemGroup Label="Analyzers">
+        <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4" />
+    </ItemGroup>
+
+    <ItemGroup Label="Testing">
+        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageVersion Include="xunit" Version="2.9.2" />
+        <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    </ItemGroup>
+
+</Project>

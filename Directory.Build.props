@@ -15,4 +15,19 @@
         <AnalysisLevel>latest-Recommended</AnalysisLevel>
     </PropertyGroup>
 
+    <!--
+      Banned APIs. Prose prohibitions across parallel workstreams are not prohibitions; each project
+      that needs one carries its own BannedSymbols.txt, because the bans differ by layer.
+    -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)/BannedSymbols.txt')">
+        <AdditionalFiles Include="$(MSBuildProjectDirectory)/BannedSymbols.txt" />
+    </ItemGroup>
+
 </Project>

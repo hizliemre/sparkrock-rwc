@@ -1,0 +1,8 @@
+# domain must not read ambient state. The school-year boundary and every audit timestamp are
+# resolved by callers and passed in; a clock read here would be untestable and, for the September
+# boundary, timezone-ambiguous (DEC-12).
+P:System.DateTime.Now;Use TimeProvider, injected by the caller.
+P:System.DateTime.UtcNow;Use TimeProvider, injected by the caller.
+P:System.DateTimeOffset.Now;Use TimeProvider, injected by the caller.
+P:System.DateTimeOffset.UtcNow;Use TimeProvider, injected by the caller.
+P:System.DateTime.Today;Use TimeProvider and the school timezone (DEC-12).
