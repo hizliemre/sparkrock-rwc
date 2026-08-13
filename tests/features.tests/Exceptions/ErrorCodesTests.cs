@@ -67,6 +67,47 @@ public sealed class ErrorCodesTests
             $"{areaName}.{fieldName} is '{value}', but the nested class name implies area '{expectedArea}'.");
     }
 
+    /// <summary>
+    ///     Every area in the closed set is declared by an area class.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This is the direction the rest of this file does not check, and its absence cost two
+    ///         features a broken precondition. Every other assertion here iterates the codes that
+    ///         <em>exist</em>, so an area named in the closed set with no class behind it satisfies all
+    ///         of them vacuously — there are simply no cases for it.
+    ///     </para>
+    ///     <para>
+    ///         That is exactly what happened to <c>ATTENDANCE_CODE</c>. It was listed in conventions
+    ///         §5's closed set and in <see cref="ClosedAreaSet" />, two specifications recorded
+    ///         <c>ErrorCodes.AttendanceCode.cs</c> as already shipped, and the file did not exist. The
+    ///         suite was green throughout. `STUDENT` was the same story one feature later.
+    ///     </para>
+    ///     <para>
+    ///         The consequence of this test is that an area cannot be added to the closed set ahead of
+    ///         its class: the two land in the same commit, or the build is red. That is the intended
+    ///         cost — a name reserved in a shared vocabulary with nothing behind it reads as shipped.
+    ///     </para>
+    /// </remarks>
+    [Fact]
+    public void ErrorCodes_EveryAreaInTheClosedSetIsDeclaredByAnAreaClass()
+    {
+        HashSet<string> declared = AllCodes()
+            .Select(row => ((string)row[2]!).Split('.')[0])
+            .ToHashSet(StringComparer.Ordinal);
+
+        string[] undeclared = ClosedAreaSet.Except(declared, StringComparer.Ordinal)
+            .OrderBy(area => area, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            undeclared.Length == 0,
+            $"Declared in the closed area set but by no area class: {string.Join(", ", undeclared)}. "
+            + "Every other assertion in this file iterates codes that exist, so an area with no class "
+            + "passes all of them by having no cases at all — which is how two features came to record "
+            + "a missing ErrorCodes file as already shipped.");
+    }
+
     [Fact]
     public void ErrorCodes_DeclaresNoConstantsOutsideAnAreaClass()
     {
