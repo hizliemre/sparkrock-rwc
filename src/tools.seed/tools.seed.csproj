@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      F00's seeder. A console tool, not a migration and not an endpoint — see SeedGuard and
+      O-31 in docs/features/F00-seed-data/spec.md for why.
+
+      It references domain, infra.persistence.sql, infra.persistence.postgre and service.defaults:
+      the same set api uses, minus features. The omission is load-bearing rather than tidy —
+      features is where the Carter modules live, and referencing it is how an ICarterModule arrives
+      in this assembly's dependency context without anyone deciding to add an endpoint (DEC-17).
+      SeedProjectShapeTests asserts both halves.
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>tools.seed</RootNamespace>
+        <AssemblyName>tools.seed</AssemblyName>
+        <UserSecretsId>2f6c1a54-9d0b-4c3e-8a71-5b4e9c2f0d18</UserSecretsId>
+        <!--
+          CA1515 ("consider making public types internal") fires only on assemblies with an entry
+          point, so it fires on every type here and on nothing else in the solution. These types are
+          public because tests/features.tests and tests/features.integration.tests call them, and
+          F00 must not add an InternalsVisibleTo entry — VC-33 is sidestepped through IDbContext,
+          not widened (T00-13 §4).
+        -->
+        <NoWarn>$(NoWarn);CA1515</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <!-- HostApplicationBuilder, for the composition chain AddSparkrockRwc() extends. -->
+      <PackageReference Include="Microsoft.Extensions.Hosting" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\domain\domain.csproj" />
+      <ProjectReference Include="..\infra.persistence.postgre\infra.persistence.postgre.csproj" />
+      <ProjectReference Include="..\infra.persistence.sql\infra.persistence.sql.csproj" />
+      <ProjectReference Include="..\service.defaults\service.defaults.csproj" />
+    </ItemGroup>
+
+</Project>

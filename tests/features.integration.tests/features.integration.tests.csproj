@@ -27,6 +27,13 @@
       <ProjectReference Include="..\..\src\domain\domain.csproj" />
       <ProjectReference Include="..\..\src\features\features.csproj" />
       <ProjectReference Include="..\..\src\infra.persistence.postgre\infra.persistence.postgre.csproj" />
+      <!--
+        F00's seeder. Seeding is inherently a database concern: the unfiltered unique index on
+        attendance_codes.value, ck_attendance_codes_value_upper and the re-run behaviour are all
+        relational, and EF InMemory enforces none of the three. F00's plan said there was no
+        integration tier here; there is one, for that reason.
+      -->
+      <ProjectReference Include="..\..\src\tools.seed\tools.seed.csproj" />
     </ItemGroup>
 
 </Project>

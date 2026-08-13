@@ -56,12 +56,39 @@ public static class DeploymentGuard
                 + $"'{environment.EnvironmentName}'.");
         }
 
+        EnsureLoopbackDatabase(configuration, "The anonymous stub identity");
+    }
+
+    /// <summary>
+    ///     Refuses unless the <c>sparkrock-rwc</c> connection string names a loopback host.
+    /// </summary>
+    /// <param name="configuration">The configuration carrying the connection string.</param>
+    /// <param name="reason">
+    ///     The subject of the refusal message, e.g. "The anonymous stub identity". Named by the
+    ///     caller so a developer reads which control refused rather than a generic sentence.
+    /// </param>
+    /// <remarks>
+    ///     Extracted so F00's seeder shares this check rather than re-implementing it.
+    ///     <see cref="ExtractHost" /> stays private: the parser is not the public surface, the check
+    ///     is — and the parser exists in this form because three hand-rolled variants each let a
+    ///     production host through a check that reported loopback (the <c>Server=</c> alias,
+    ///     duplicate-key precedence, and quoted semicolons).
+    ///     <para>
+    ///         The honesty of the previous paragraph carries over unchanged: this check is defeatable
+    ///         (O-16), and the opt-in flag each caller checks first is the real control.
+    ///     </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The host is absent, unparseable or not loopback.</exception>
+    public static void EnsureLoopbackDatabase(IConfiguration configuration, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
         string? host = ExtractHost(configuration.GetConnectionString(ConnectionStringName));
 
         if (host is null || !LoopbackHosts.Contains(host, StringComparer.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "The anonymous stub identity is only permitted against a loopback database. The connection string "
+                $"{reason} is only permitted against a loopback database. The connection string "
                 + $"'{ConnectionStringName}' resolves to host '{host ?? "<none>"}'.");
         }
     }
