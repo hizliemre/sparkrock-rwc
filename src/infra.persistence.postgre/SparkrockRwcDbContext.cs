@@ -1,6 +1,11 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using domain;
+using domain.AttendanceCodes;
+using domain.Schools;
+using domain.SchoolTerms;
+using domain.Students;
+using domain.ValueObjects;
 using domain.Abstraction;
 using infra.persistence.postgre.ErrorTranslation;
 using infra.persistence.sql;
@@ -17,6 +22,14 @@ internal sealed class SparkrockRwcDbContext(
     // feature has registered a registry, while the default keeps the design-time DbContextFactory
     // (new SparkrockRwcDbContext(options)) and the in-memory test factory compiling unchanged.
     private readonly IConstraintErrorRegistry _constraintErrors = constraintErrors ?? ConstraintErrorRegistry.Empty;
+
+    public DbSet<School> Schools { get; set; }
+
+    public DbSet<Student> Students { get; set; }
+
+    public DbSet<AttendanceCode> AttendanceCodes { get; set; }
+
+    public DbSet<SchoolTerm> SchoolTerms { get; set; }
 
     public DbSet<TestEntity> TestEntities { get; set; }
 
@@ -43,6 +56,20 @@ internal sealed class SparkrockRwcDbContext(
         {
             throw translated;
         }
+    }
+
+    /// <summary>
+    ///     Registers the school-year conversion once for the whole model.
+    /// </summary>
+    /// <remarks>
+    ///     Per-property registration would let a new entity carrying a school year silently map a
+    ///     bare int and bypass the value object's range guard.
+    /// </remarks>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+
+        configurationBuilder.Properties<SchoolYear>().HaveConversion<SchoolYearToIntConverter>();
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
