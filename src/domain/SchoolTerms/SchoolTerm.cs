@@ -15,7 +15,7 @@ namespace domain.SchoolTerms;
 ///         term lookup took an arbitrary match, so resolution was nondeterministic under overlap.
 ///     </para>
 /// </remarks>
-public sealed class SchoolTerm : BaseEntity, ILegacyEntity, ISchoolScoped
+public sealed class SchoolTerm : BaseEntity, IActivatable, ILegacyEntity, ISchoolScoped
 {
     public required Guid SchoolId { get; set; }
 

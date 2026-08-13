@@ -6,6 +6,7 @@ using features.Schools;
 using features.tests.Fakes;
 using infra.persistence.postgre;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
@@ -55,12 +56,23 @@ public sealed class DeactivateSchoolHandlerTests
     ///     <c>SaveChangesAsync</c> stamps <c>ModifiedAt</c> through the interceptor and reports a
     ///     change that did not happen, making <c>lastUpdatedAt</c> lie.
     /// </summary>
+    /// <remarks>
+    ///     The first two assertions here are satisfied by EF, not by the handler. Assigning
+    ///     <c>IsActive = false</c> to an already-inactive row leaves the change tracker empty, so a
+    ///     handler that bypassed <c>ActivationPolicy</c> entirely and assigned the flag directly would
+    ///     pass both. The absent log line is the one effect such a handler still produces — it
+    ///     announces a deactivation that did not happen. F04 found this weakness in its own copy of
+    ///     this test and reported that F02's was identical and still inert; this is that fix. Paired
+    ///     with <c>Handle_WhenActive_LogsTheDeactivationOnce</c>, so it cannot pass by the slice never
+    ///     logging at all.
+    /// </remarks>
     [Fact]
     public async Task Handle_WhenAlreadyInactive_DoesNotWrite()
     {
         Guid schoolId = Guid.NewGuid();
         FakeCurrentUser admin = FakeCurrentUser.SystemAdmin();
         FakeTimeProvider clock = InMemoryDbContextFactory.Clock();
+        RecordingLogger<DeactivateSchool.CommandHandler> logger = new();
 
         await using SparkrockRwcDbContext dbContext = InMemoryDbContextFactory.Create(clock, admin);
         School school = await SchoolSeed.AddAsync(dbContext, schoolId, isActive: false);
@@ -68,10 +80,29 @@ public sealed class DeactivateSchoolHandlerTests
 
         clock.Advance(TimeSpan.FromHours(5));
 
-        await Handle(dbContext, admin, schoolId);
+        await Handle(dbContext, admin, schoolId, logger);
 
         Assert.Null(Assert.Single(await dbContext.Schools.AsNoTracking().ToListAsync()).ModifiedAt);
         Assert.False(dbContext.ChangeTracker.HasChanges());
+        Assert.Empty(logger.EventIds);
+    }
+
+    /// <summary>
+    ///     Guards the assertion above against passing because the slice never logs at all.
+    /// </summary>
+    [Fact]
+    public async Task Handle_WhenActive_LogsTheDeactivationOnce()
+    {
+        Guid schoolId = Guid.NewGuid();
+        FakeCurrentUser admin = FakeCurrentUser.SystemAdmin();
+        RecordingLogger<DeactivateSchool.CommandHandler> logger = new();
+
+        await using SparkrockRwcDbContext dbContext = InMemoryDbContextFactory.Create(currentUser: admin);
+        await SchoolSeed.AddAsync(dbContext, schoolId, isActive: true);
+
+        await Handle(dbContext, admin, schoolId, logger);
+
+        Assert.Single(logger.EventIds);
     }
 
     [Fact]
@@ -180,10 +211,14 @@ public sealed class DeactivateSchoolHandlerTests
         Assert.Null(term.ModifiedAt);
     }
 
-    private static Task Handle(SparkrockRwcDbContext dbContext, FakeCurrentUser currentUser, Guid schoolId)
+    private static Task Handle(
+        SparkrockRwcDbContext dbContext,
+        FakeCurrentUser currentUser,
+        Guid schoolId,
+        ILogger<DeactivateSchool.CommandHandler>? logger = null)
     {
         DeactivateSchool.CommandHandler handler = new(
-            dbContext, currentUser, NullLogger<DeactivateSchool.CommandHandler>.Instance);
+            dbContext, currentUser, logger ?? NullLogger<DeactivateSchool.CommandHandler>.Instance);
 
         return handler.Handle(new DeactivateSchool.Command { SchoolId = schoolId }, CancellationToken.None);
     }
