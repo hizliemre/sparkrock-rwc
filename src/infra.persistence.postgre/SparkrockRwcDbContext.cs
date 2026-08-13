@@ -1,7 +1,10 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using domain;
+using domain.Alerts;
+using domain.Attendance;
 using domain.AttendanceCodes;
+using domain.Import;
 using domain.Schools;
 using domain.SchoolTerms;
 using domain.Students;
@@ -30,6 +33,20 @@ internal sealed class SparkrockRwcDbContext(
     public DbSet<AttendanceCode> AttendanceCodes { get; set; }
 
     public DbSet<SchoolTerm> SchoolTerms { get; set; }
+
+    public DbSet<StudentAttendance> StudentAttendances { get; set; }
+
+    public DbSet<StudentAttendanceSummary> StudentAttendanceSummaries { get; set; }
+
+    public DbSet<StudentAlert> StudentAlerts { get; set; }
+
+    public DbSet<AttendanceSubmissionLog> AttendanceSubmissionLogs { get; set; }
+
+    /// <summary>
+    ///     Import quarantine. Deliberately absent from <c>IDbContext</c> — only the importer writes
+    ///     here, and exposing it through the port would invite a slice to read it.
+    /// </summary>
+    public DbSet<LegacyImportAnomaly> LegacyImportAnomalies { get; set; }
 
     public DbSet<TestEntity> TestEntities { get; set; }
 

@@ -290,3 +290,47 @@ Forcing a `23505` on the attendance insert rolled back the summary, alert and lo
 ## VC-33 — `SparkrockRwcDbContext` is not reachable from a console importer
 
 It is `internal sealed`, and `infra.persistence.postgre.csproj` grants `InternalsVisibleTo` only to `features.tests`. DEC-17's importer needs an added entry or a public factory; conventions §6 adds one for `features.integration.tests` but not for the importer.
+
+## VC-35 — EF InMemory builds the `uint`/`xmin` token but never populates it
+
+`builder.Property<uint>("Version").IsRowVersion()` builds without error on the InMemory provider, and inserts, updates and queries all behave normally:
+
+```
+MODEL BUILD: OK
+Version: clr=UInt32 isShadow=True isConcurrencyToken=True valueGenerated=OnAddOrUpdate
+A saved 100; B saved 200 -> no exception; final stored = 200
+```
+
+InMemory **does** enforce concurrency tokens — forcing a stale `OriginalValue` throws `DbUpdateConcurrencyException`. It simply never generates a value for a `ValueGenerated.OnAddOrUpdate` property, so the token stays `0`, original always equals current, and every check passes trivially.
+
+The configuration therefore needs no provider conditional and the handler tier does not break. The consequence is a **tier rule**: on InMemory the summary is unprotected, so any handler-tier test asserting concurrency or retry behaviour passes vacuously whether or not the mechanism exists. Concurrency and retry assertions belong to the integration tier without exception.
+
+## VC-36 — Postgres truncates identifiers at 63 characters, and `ConstraintName` reports the truncated form
+
+`HasDatabaseName` is not length-checked by EF: a 67-character index name is emitted verbatim and Postgres shortens it, with only a `NOTICE` that `dotnet ef database update` never surfaces.
+
+```
+NOTICE: identifier "ix_student_alerts_student_id_alert_type_school_year_start_school_id"
+        will be truncated to "ix_student_alerts_student_id_alert_type_school_year_start_schoo"
+```
+
+`pg_indexes.indexname` and `PostgresException.ConstraintName` both return the 63-character form. The constraint registry matches with `StringComparer.Ordinal`, so a registry keyed on the declared name resolves nothing, the translator returns null, and a raw `PostgresException` escapes instead of the mapped 409. The failure is silent until the constraint is actually violated.
+
+Every pinned name must be ≤63 characters, asserted over `GetService<IDesignTimeModel>().Model` — check-constraint names are absent from the read-optimised `DbContext.Model`, which throws.
+
+## VC-37 — the `xmin` token appears in the scaffolded migration but not in the DDL
+
+`dotnet ef migrations add` emits `xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)` inside the `CreateTable`, and the model snapshot records `HasColumnType("xid")` / `HasColumnName("xmin")`. `GenerateCreateScript()` and the applied DDL both omit it — Npgsql's SQL generator suppresses the system column — and the live table has no `xmin` column.
+
+A migration guard asserting only the *absence* of a `version` column discriminates against the `byte[]` form solely because the shadow property happens to be named `Version`; VC-28 notes `uint` maps to `xmin` whatever the property is called. Assert both directions: `xmin` / `xid` / `rowVersion: true` present, `bytea` absent.
+
+## VC-38 — `GetColumnType()` throws on the InMemory model
+
+The same property answers differently depending on which model it is read from:
+
+```
+InMemory GetColumnName() = Version
+InMemory GetColumnType() -> InvalidCastException: Unable to cast 'InMemoryTypeMapping' to 'RelationalTypeMapping'
+```
+
+`GetColumnName()` returns the property name rather than throwing, so a relational assertion pointed at the in-memory model fails with "expected xmin, got Version" — which reads as a misconfigured token when it is only the wrong harness. Model-shape assertions build the Npgsql model offline; they never use the in-memory factory.

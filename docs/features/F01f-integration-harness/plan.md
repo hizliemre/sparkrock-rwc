@@ -15,12 +15,12 @@ Sequencing is forced by the compiler. Nothing in this feature can be tested unti
 and both `InternalsVisibleTo` grants are in place, so those come first and their red is `CS0122`.
 
 ```
-T01f-01  Package version + empty project in the sln      ── red: dotnet build fails, project not found
-T01f-02  Both InternalsVisibleTo grants                   ── red: CS0122 on SparkrockRwcDbContext
-T01f-03  Docker preflight probe                           ── red: 60s opaque hang with Docker stopped
-T01f-04  PostgresContainerFixture + collection            ── red: no container, MigrateAsync unreachable
+T01f-01  Package version + empty project in the sln      ── red: dotnet test fails, project not found
+T01f-02  Both InternalsVisibleTo grants                   ── red: CS0122, once per grant
+T01f-03  Docker preflight probe + its tests               ── red: DockerAvailabilityTests do not compile
+T01f-04  PostgresContainerFixture + collection            ── red: 42P01, relation test_entities missing
 T01f-05  ContainerDbContextFactory                        ── T01f-04
-T01f-06  DatabaseProbe + the five proving tests           ── T01f-05
+T01f-06  DatabaseProbe + the proving tests                ── T01f-05
 T01f-07  Verify: build clean, both tiers green, timings   ── T01f-06
 ```
 
@@ -37,10 +37,12 @@ the feature, not a scheduling failure — it is ~200 lines total and exists to u
 | `features.integration.tests.csproj` | new |
 | `GlobalUsings.cs` | `features.integration.tests` |
 | `DockerAvailability.cs` | `features.integration.tests` |
+| `DockerAvailabilityTests.cs` | `features.integration.tests` |
 | `PostgresContainerFixture.cs` | `features.integration.tests` |
-| `IntegrationTestCollection.cs` | `features.integration.tests` |
+| `IntegrationTestCollectionDefinition.cs` | `features.integration.tests` |
 | `ContainerDbContextFactory.cs` | `features.integration.tests` |
 | `DatabaseProbe.cs` | `features.integration.tests` |
+| `InternalsVisibilityTests.cs` | `features.integration.tests` |
 | `Fakes/FakeCurrentUser.cs` | `features.integration.tests` |
 | `Persistence/TestEntityPersistenceTests.cs` | `features.integration.tests` |
 
@@ -62,6 +64,13 @@ tier that silently degrades to InMemory when Docker is missing reports green whi
 which is strictly worse than red. The mitigation is the preflight probe (§T01f-03) making the reason
 unmissable in under five seconds. If CI cannot run Docker, the correct response is a separate CI job,
 not a fallback provider.
+
+**The preflight is partly redundant, and that is fine.** Testcontainers' resolver already tries each
+candidate endpoint and skips the unavailable ones, so on a healthy machine the probe agrees with it
+in milliseconds. It earns its place in the case the resolver cannot help with: nothing available, a
+last-resort candidate returned anyway, and the failure otherwise surfacing from inside container
+startup. The same behaviour is why `DOCKER_HOST` cannot simulate an outage, which is what forced the
+failure path to be tested through an endpoint-taking overload instead.
 
 **Shared database across the collection.** One migrated database serves every test, so a test that
 assumes an empty `test_entities` will pass alone and fail in a suite. Mitigated by convention — fresh
@@ -93,9 +102,19 @@ dotnet test tests/features.integration.tests/features.integration.tests.csproj  
 
 Timing is reported for both a cold and a warm run, because "the integration tier is slow" is the
 first thing anyone will say about it and the number should be on the record rather than folklore.
+Measured on an Apple-silicon Docker Desktop, evicting `postgres:17-alpine` to force the cold case:
 
-The Docker-absent path is verified by hand — stop the daemon, run the suite, confirm the failure is
-the preflight message and that it arrives in single-digit seconds.
+| Run | Wall clock | Reported test duration |
+|---|---|---|
+| Cold (image pulled during the run) | 11.6s | 10s |
+| Warm | 4.6s | 3s |
+
+Both are far below VC-24's ~66s, which was measured on a machine that also had to fetch the
+credential helper and Ryuk. The container itself starts in about a second; the migration is one
+`CREATE TABLE`.
+
+The Docker-absent path is verified by `DockerAvailabilityTests` rather than by hand — see the risk
+note above for why stopping the daemon is neither necessary nor sufficient.
 
 ## Not doing
 

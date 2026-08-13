@@ -327,7 +327,7 @@ Behaviours that intentionally differ from legacy. **26 entries.**
 | V-23 | D-02 | Code description joined at read time | Description snapshotted onto the attendance row; redefining a description no longer changes historical display | F01d | *pending* | no | proposed | ● |
 | V-24 | L-15 | Grade filter silently inert; empty grade always passed | `?grade=` is an explicit optional filter | F06 | *pending* | no | proposed | n/a |
 | V-25 | L-16 | Date fixed at form load; no back-dating | Date is an explicit request parameter, bounded (not future, within a configured back-dating window) | F07 | *pending* | config toggle | proposed | ● |
-| V-27 ● | — | SQL Server's case-insensitive collation treated `A` and `a` as the same attendance code | Postgres unique indexes are case-sensitive, so both could coexist. A check constraint forces uppercase, making the codes behave as before | F01c | *pending* | no | proposed | — |
+| V-27 ● | — | SQL Server's case-insensitive collation treated `A` and `a` as the same attendance code | Postgres unique indexes are case-sensitive, so both could coexist. A check constraint forces uppercase, making the codes behave as before | F01c, F03 | `MigrationDdlTests.Migration_DeclaresCheckConstraintWithItsPinnedNameAndPredicate` | no | **implemented** | — |
 | V-26 | L-10 | Threshold default `10` written twice | Single `domain` constant used by both F07 and F09 | F01b | `AbsenceRulesTests.ResolveThreshold_WhenSchoolThresholdNull_ReturnsDefaultOfTen` | n/a | **verified** | n/a |
 
 **Preserved behaviours** — deliberately unchanged, listed so the log is not read as exhaustive by omission:

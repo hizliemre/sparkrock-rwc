@@ -449,9 +449,12 @@ Every item below is required by two or more features. Left unassigned, each beco
 | `AbsenceThreshold` default constant (V-26) | F01b | F07, F09 |
 | `AlertEvaluation` + `ChronicAbsenteeism` pure functions | F01b | F07, F09, F10, F12 |
 | Absence recount function (extracted from F07, not inlined) | F01b | F07, F12 |
-| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F03, F04, F07, F08, F10 |
+| `IActivatable` + `ActivationPolicy` — the `IsActive` transition check | F02 | F03, F04, F05 |
+| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F01d, F03, F04, F07, F08, F10 |
 
-`F01f` gains edges to F03, F04, F08 and F10 — each has a `Verified by` that only the integration tier can satisfy.
+`F01f` gains **blocks-merge** edges to F01d, F03, F07, F08 and F10 — each has a `Verified by` that only the integration tier can satisfy. Not F04: its term-overlap rejection is application-enforced by decision, so nothing there needs a container.
+
+**The activation check is one shared artifact, not four.** DEC-20 attaches privilege to the `IsActive` transition rather than to `DELETE`, and `PUT { isActive: false }` reaches the same state — so a per-endpoint check leaves the other half unguarded. F02 authors it; F03, F04 and F05 consume it.
 
 **F01e is gone** — DEC-14 removed the transaction seam.
 

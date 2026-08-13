@@ -57,10 +57,17 @@ consumer of this tier tests a handler, and handlers are `internal`.
 ```
 
 in **both** `src/features/features.csproj` and
-`src/infra.persistence.postgre/infra.persistence.postgre.csproj`. Neither is optional and neither is
-sufficient alone: the DbContext, its options type argument, the interceptor and every handler are
-`internal`. One grant produces a compile error naming only the other assembly's type, which reads as
-a missing project reference.
+`src/infra.persistence.postgre/infra.persistence.postgre.csproj`. They are needed for different
+reasons and neither substitutes for the other:
+
+- **postgre** — `SparkrockRwcDbContext` and `AuditableEntityInterceptor` are `internal sealed`
+  (VC-33). Without it this project's own factory does not compile: `CS0122`.
+- **features** — handlers and validators are `internal` by the slice convention, and every downstream
+  consumer (F03, F04, F07, F08, F10) asserts against a handler.
+
+The second grant has no consumer *today*, which is exactly how a grant gets dropped as unused and
+rediscovered at F07's merge. `InternalsVisibilityTests` names one internal type from each assembly, so
+removing either grant is a compile error now rather than a surprise later.
 
 These two lines are the entire footprint outside `tests/`. F01f authors no migration, changes no
 entity, and touches nothing in `src/` besides them.
@@ -68,11 +75,16 @@ entity, and touches nothing in `src/` besides them.
 ### 3. `PostgresContainerFixture` — one container per collection
 
 ```csharp
-[CollectionDefinition(IntegrationTestCollection.Name)]
-public sealed class IntegrationTestCollection : ICollectionFixture<PostgresContainerFixture>;
+[CollectionDefinition(IntegrationTestCollectionDefinition.Name)]
+public sealed class IntegrationTestCollectionDefinition : ICollectionFixture<PostgresContainerFixture>;
 ```
 
-- `postgres:17-alpine`, matching the PostgreSQL 17 that VC-xx were verified against.
+(`…Definition`, not `…Collection`: CA1711 reserves the `Collection` suffix for `ICollection`
+implementations, and warnings are errors.)
+
+- `postgres:17-alpine`, matching the PostgreSQL 17 that VC-xx were verified against. The image is
+  passed to `new PostgreSqlBuilder(image)` — the parameterless constructor is obsolete in 4.13.0, and
+  `CS0618` under `TreatWarningsAsErrors` is a build failure.
 - `Database.MigrateAsync()` runs **once**, in `InitializeAsync`, on a context built by the same
   factory the tests use — so the migration is applied through the production naming convention
   rather than a second, hand-written option chain that can drift from it.
@@ -113,10 +125,26 @@ public static SparkrockRwcDbContext Create(
 Docker is a hard prerequisite; there is no local-server fallback and there must not be one, or the
 tier silently runs against whatever schema a developer's machine happens to hold.
 
-The fixture **pings the resolved Docker endpoint with a 5-second timeout before starting the
+The fixture **connect-probes the resolved Docker endpoint with a 5-second timeout before starting the
 container** and, on failure, throws with the endpoint it probed and what to do about it. Without the
 probe the failure surfaces as a socket timeout deep inside container startup, tens of seconds later,
 naming an image rather than the actual problem.
+
+The endpoint comes from Testcontainers' own resolution
+(`TestcontainersSettings.OS.DockerEndpointAuthConfig`), which honours `DOCKER_HOST`, the active
+Docker context and `~/.testcontainers.properties`. Guessing `/var/run/docker.sock` is wrong on the
+most common developer machine — Docker Desktop on macOS listens on `~/.docker/run/docker.sock`.
+
+Two things learned while building this, both worth writing down:
+
+- **Testcontainers' resolver already probes each candidate endpoint** and falls through to the next
+  when one is unavailable. So on a healthy machine the preflight agrees with it and costs
+  milliseconds; what it adds is the case where *nothing* is available and the resolver still returns
+  its last-resort candidate.
+- **`DOCKER_HOST` cannot be used to simulate an outage** for the same reason — point it at a dead
+  port and the resolver quietly falls back to the working socket. The failure path is therefore
+  asserted through an endpoint-taking overload, `DockerAvailability.EnsureReachableAsync(Uri?)`,
+  rather than by asking a reader to stop their daemon.
 
 ### 6. The proving tests
 
@@ -134,6 +162,16 @@ The harness is only shipped if something real passes through it. `TestEntityPers
 The physical reads go through a plain `NpgsqlConnection` in a single `DatabaseProbe` helper, not
 through `FromSqlRaw` on the DbContext. Catalog inspection is a legitimate integration-tier need, and
 routing it around EF keeps conventions §7's raw-SQL ban meaning exactly what it says.
+
+Two more classes cover the harness itself rather than the database, and deliberately sit **outside**
+the collection so they need no container:
+
+| Test | Asserts |
+|---|---|
+| `InternalsVisibilityTests.InternalsVisibleTo_GrantsAccessToTheDbContextAndToHandlers` | both grants exist and both target types are still genuinely internal |
+| `DockerAvailabilityTests.EnsureReachableAsync_WhenNoEndpointResolved_ThrowsWithoutProbing` | a null endpoint fails immediately |
+| `DockerAvailabilityTests.EnsureReachableAsync_WhenEndpointRefusesConnections_ThrowsWithinBudget` | a refused endpoint fails in well under ten seconds, with the endpoint in the message |
+| `DockerAvailabilityTests.EnsureReachableAsync_WhenSocketFileIsMissing_NamesTheSocketPath` | an absent unix socket names the path rather than a generic I/O error |
 
 ## The 5433 question
 
@@ -184,8 +222,9 @@ stronger assertion possible was rejected — migrations are authored only in F01
 3. `dotnet test tests/features.tests/features.tests.csproj` is unchanged and still green — no
    existing test file, and nothing under `src/domain`, `src/api` or `src/service.defaults`, is
    modified.
-4. With the Docker daemon stopped, the run fails in **under 10 seconds** with a message naming the
-   probed endpoint and the remedy — not a socket timeout inside container startup.
+4. An unreachable Docker endpoint fails in **under 10 seconds** with a message naming the probed
+   endpoint and the remedy — not a socket timeout inside container startup. Asserted by
+   `DockerAvailabilityTests`, which needs neither a stopped daemon nor a running one.
 5. `Testcontainers.PostgreSql` appears in `Directory.Packages.props` and **not** in any csproj with a
    `Version` attribute.
 6. Both `InternalsVisibleTo` grants exist; removing either breaks the build, which is the point.

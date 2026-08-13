@@ -232,7 +232,7 @@ Every name is pinned with `HasDatabaseName` so the conventions §5 error mapping
 | `ix_student_attendances_legacy_id` | `student_attendances` | `(legacy_id)` | yes | `legacy_id IS NOT NULL` |
 | `ix_student_attendance_summaries_student_id_school_year_start` | `student_attendance_summaries` | `(student_id, school_year_start)` | yes | **none** |
 | `ix_student_attendance_summaries_school_id_school_year_start` | `student_attendance_summaries` | `(school_id, school_year_start)` | no | — |
-| `ix_student_alerts_student_id_alert_type_school_year_start_school_id` | `student_alerts` | `(student_id, alert_type, school_year_start, school_id)` | yes | `resolved_at IS NULL AND is_deleted = false` |
+| `ix_student_alerts_open_episode <!-- renamed from the four-column form: that was 67 characters, and Postgres truncates at 63 while PostgresException.ConstraintName reports the truncated name, so a registry keyed on the declared name would never match (VC-36) -->` | `student_alerts` | `(student_id, alert_type, school_year_start, school_id)` | yes | `resolved_at IS NULL AND is_deleted = false` |
 | `ix_student_alerts_student_id_school_year_start` | `student_alerts` | `(student_id, school_year_start)` | no | — |
 | `ix_student_alerts_school_id_school_year_start` | `student_alerts` | `(school_id, school_year_start)` | no | — |
 | `ix_attendance_submission_logs_school_id_submitted_at_id` | `attendance_submission_logs` | `(school_id, submitted_at, id)` | no | — |
@@ -329,7 +329,7 @@ The registry is F01a's artifact; design §5's shared-artifact table says "the fe
 |---|---|---|
 | `ix_student_attendances_student_id_attend_date` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
 | `ix_student_attendance_summaries_student_id_school_year_start` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
-| `ix_student_alerts_student_id_alert_type_school_year_start_school_id` | 23505 | 409 `ALERT.DUPLICATE_OPEN_EPISODE` |
+| `ix_student_alerts_open_episode` | 23505 | 409 `ALERT.DUPLICATE_OPEN_EPISODE` |
 | `ix_attendance_submission_logs_school_id_idempotency_key` | 23505 | 409 `ATTENDANCE.DUPLICATE_SUBMISSION` |
 | `ix_student_attendances_legacy_id` | 23505 | 409 `IMPORT.DUPLICATE_LEGACY_ID` |
 

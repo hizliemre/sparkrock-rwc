@@ -95,7 +95,7 @@ depends-on: [T01d-01]
 **Red.** `tests/features.tests/Model/StudentAlertModelTests.cs`:
 
 - `Model_StudentAlertMapsToStudentAlerts` — the ten columns of spec §2.3.
-- `Model_StudentAlertEpisodeIndexIncludesIsDeleted` — index `ix_student_alerts_student_id_alert_type_school_year_start_school_id`, unique, columns in that order, filter exactly `resolved_at IS NULL AND is_deleted = false`.
+- `Model_StudentAlertEpisodeIndexIncludesIsDeleted` — index `ix_student_alerts_open_episode`, unique, columns in that order, filter exactly `resolved_at IS NULL AND is_deleted = false`.
 
   The `is_deleted` term is asserted by an equality on the whole filter string, not a `Contains`, so dropping it fails here as well as at T01d-16. DEC-18: without it, a soft-deleted open alert occupies the episode slot invisibly and forever.
 - `Model_AlertTypeIsStoredAsString` — `alert_type` store type is `character varying(32)`, not `integer`. An int-backed enum silently re-maps every stored row when a member is inserted, and this column is inside a unique key (spec §2.3).

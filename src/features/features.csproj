@@ -11,6 +11,9 @@
 
     <ItemGroup>
       <InternalsVisibleTo Include="features.tests" />
+      <!-- Handlers and validators are internal by the slice convention, and the integration tier
+           asserts against them (F01f; F03, F04, F07, F08 and F10 are its consumers). -->
+      <InternalsVisibleTo Include="features.integration.tests" />
     </ItemGroup>
 
     <ItemGroup>
