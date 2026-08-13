@@ -49,6 +49,18 @@ the design owner along with the others found while writing these three specs. No
 implementation changes either way; what changes is whether a reviewer looking only at the table
 believes F08 can merge without a container.
 
+## Conflicts found in the canonical documents
+
+Recorded here because F08 is the feature that trips over them, and reported to the design owner
+rather than resolved on this branch. None blocks implementation.
+
+| # | Conflict | Where | F08's handling |
+|---|---|---|---|
+| 1 | **F01f edge, table versus prose.** §5's dependency table gives F08 only `F01d`; §5's prose and F01f's own spec both name F08 as needing the integration tier | design.md §5 | Front-matter copies the table; F01f is treated as *blocks-merge* and named in the spec §5 |
+| 2 | **V-28 is cited but does not exist.** DEC-16 logs the rejected "current school **or** any row's school" rule as V-28. legacy-analysis §4 ends at V-27 and has no V-28 row | design.md DEC-16 vs legacy-analysis §4 | F08 implements DEC-16's rule and cites DEC-16, not V-28. A dangling id also fails features/README's cross-reference check item 3, and O-32 already records the log's counts as wrong in four documents |
+| 3 | **O-25's asymmetry, restated as a decision.** F09's single aggregate is ●-gated and named in Q-05; F08's row-level cross-school history is neither | open-findings.md, design.md §6 | Spec §4.3: `origin` discriminator, no school identifier, and Q-05 widened to name F08 |
+| 4 | **`?to=` versus half-open ranges.** conventions §1 lists `?from=&to=` for F08 and F11; conventions §2 defines every date range as `[from, toExclusive)` | conventions §1 vs §2 | Spec §1 resolves F08's half as `?toExclusive=`. F11's half stays open (O-07) |
+
 ## Where the code goes
 
 | File | Project | New |
