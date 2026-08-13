@@ -84,5 +84,22 @@ public static partial class ErrorCodes
         ///     the caller than "try again".
         /// </remarks>
         public const string DuplicateSubmission = "ATTENDANCE.DUPLICATE_SUBMISSION";
+
+        /// <summary>
+        ///     The addressed submission log does not exist, or belongs to a school outside
+        ///     <c>AuthorizedSchoolIds</c>.
+        /// </summary>
+        /// <remarks>
+        ///     One code for both, because conventions §2's existence-oracle rule requires the two to be
+        ///     indistinguishable: a distinguishable status or code confirms that a submission with that
+        ///     id exists somewhere. <see cref="NotFoundException" /> takes no message, so the payloads
+        ///     are identical by construction rather than by call-site discipline.
+        ///     <para>
+        ///         Also the answer for a school that has simply never submitted anything — no, it is
+        ///         not: that is an empty list, not a 404 (F11 spec §5). This code is only ever raised
+        ///         for a <em>path</em> id that does not resolve.
+        ///     </para>
+        /// </remarks>
+        public const string SubmissionNotFound = "ATTENDANCE.SUBMISSION_NOT_FOUND";
     }
 }
