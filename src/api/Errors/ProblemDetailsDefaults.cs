@@ -40,10 +40,16 @@ internal static class ProblemDetailsDefaults
             context.ProblemDetails.Extensions["errorCode"] = DefaultErrorCodeFor(status);
         }
 
-        string errorCode = (string)context.ProblemDetails.Extensions["errorCode"]!;
+        string errorCode = context.ProblemDetails.Extensions["errorCode"] as string
+                           ?? DefaultErrorCodeFor(status);
 
-        context.ProblemDetails.Type ??= ToTypeUri(errorCode);
-        context.ProblemDetails.Title ??= TitleFor(status);
+        // Assigned unconditionally, not with ??=. DefaultProblemDetailsWriter runs the framework's
+        // own defaults before this callback, so Type and Title are already populated with RFC links
+        // and generic titles by the time we see them — a null-coalescing assignment silently never
+        // fires and the documented envelope never reaches the wire. Neither handler sets these, and
+        // titles are per status rather than per handler, so overwriting is correct.
+        context.ProblemDetails.Type = ToTypeUri(errorCode);
+        context.ProblemDetails.Title = TitleFor(status);
 
         // Server-side detail on a 5xx is exactly the text that leaks connection strings and
         // parameter values into a client response.

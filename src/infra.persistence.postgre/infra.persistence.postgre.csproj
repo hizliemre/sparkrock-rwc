@@ -6,6 +6,9 @@
 
     <ItemGroup>
       <InternalsVisibleTo Include="features.tests" />
+      <!-- SparkrockRwcDbContext and AuditableEntityInterceptor are internal (VC-33), so the
+           integration tier cannot build the real model without this (F01f, conventions §6). -->
+      <InternalsVisibleTo Include="features.integration.tests" />
     </ItemGroup>
 
     <ItemGroup>

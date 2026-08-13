@@ -20,6 +20,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "service.defaults", "src\ser
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "features.tests", "tests\features.tests\features.tests.csproj", "{4EAAD573-B623-4D41-B1B7-F986FE26E063}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "features.integration.tests", "tests\features.integration.tests\features.integration.tests.csproj", "{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -126,6 +128,18 @@ Global
 		{4EAAD573-B623-4D41-B1B7-F986FE26E063}.Release|x64.Build.0 = Release|Any CPU
 		{4EAAD573-B623-4D41-B1B7-F986FE26E063}.Release|x86.ActiveCfg = Release|Any CPU
 		{4EAAD573-B623-4D41-B1B7-F986FE26E063}.Release|x86.Build.0 = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|x64.Build.0 = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Debug|x86.Build.0 = Debug|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|x64.ActiveCfg = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|x64.Build.0 = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|x86.ActiveCfg = Release|Any CPU
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -139,5 +153,6 @@ Global
 		{5D30011D-E4A0-4B17-B463-6805F972A367} = {408A8D4A-4DA0-4FFA-8E4F-D247F51ADF48}
 		{3CEF9EF7-59AE-4D03-A503-D5FA3654BCFA} = {408A8D4A-4DA0-4FFA-8E4F-D247F51ADF48}
 		{4EAAD573-B623-4D41-B1B7-F986FE26E063} = {9968B0CB-6B02-4D74-8A79-28B2B7557BA8}
+		{D3FFAEE5-2935-4248-9C80-1AE8FDB4FD75} = {9968B0CB-6B02-4D74-8A79-28B2B7557BA8}
 	EndGlobalSection
 EndGlobal

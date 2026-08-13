@@ -1,8 +1,14 @@
 # ValidationProblemDetails serialises its errors as a JSON object at the same pointer the shared
 # envelope uses for an array of {source, path, code, message}. One key with two shapes is worse than
-# the defect it replaced, so the collision is made unrepeatable rather than merely fixed once.
+# the defect it replaced.
 T:Microsoft.AspNetCore.Mvc.ValidationProblemDetails;Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
-M:Microsoft.AspNetCore.Http.Results.ValidationProblem(System.Collections.Generic.IDictionary{System.String,System.String[]},System.String,System.String,System.Nullable{System.Int32},System.String,System.Collections.Generic.IDictionary{System.String,System.Object});Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
+T:Microsoft.AspNetCore.Http.HttpResults.ValidationProblem;Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
+
+# The factory methods that construct one. Signatures are exact because a near-miss resolves to
+# nothing and BannedApiAnalyzers reports no error for an entry it cannot bind -- the resolvability
+# test is what keeps these honest.
+M:Microsoft.AspNetCore.Http.Results.ValidationProblem(System.Collections.Generic.IDictionary{System.String,System.String[]},System.String,System.String,System.Nullable{System.Int32},System.String,System.String,System.Collections.Generic.IDictionary{System.String,System.Object});Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
+M:Microsoft.AspNetCore.Http.TypedResults.ValidationProblem(System.Collections.Generic.IDictionary{System.String,System.String[]},System.String,System.String,System.String,System.String,System.Collections.Generic.IDictionary{System.String,System.Object});Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
 
 # Clock reads belong behind TimeProvider.
 P:System.DateTime.Now;Use TimeProvider.

@@ -1,14 +1,21 @@
-# ExecuteDelete performs a physical delete, defeating soft delete (V-11, VC-11), and ExecuteUpdate
-# bypasses AuditableEntityInterceptor so audit columns are silently not stamped. Both are reachable
-# here, unlike in features, so the ban is load-bearing rather than pre-emptive.
-M:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions.ExecuteDelete``1(System.Linq.IQueryable{``0});Hard-deletes, defeating soft delete (VC-11).
-M:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions.ExecuteDeleteAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken);Hard-deletes, defeating soft delete (VC-11).
+# Type-level rather than method-level. Method entries must name the exact generic arity and parameter
+# list, and BannedApiAnalyzers silently ignores an entry it cannot resolve -- so a near-miss signature
+# produces a ban that never fires and a file that reads as though it does. Banning the whole
+# extension class cannot miss, and nothing here legitimately needs it: ExecuteDelete hard-deletes
+# past soft delete, ExecuteUpdate bypasses the audit interceptor, and raw SQL reinstates the legacy
+# injection class.
+T:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions;Covers ExecuteUpdate, ExecuteDelete and FromSql. All three bypass a guarantee: audit stamping, soft delete, or parameterisation.
+T:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions;Raw SQL. If a sanctioned site is ever needed, exempt it explicitly and name it here.
+
+# IgnoreQueryFilters cannot be banned at type level -- EntityFrameworkQueryableExtensions also holds
+# ToListAsync and every other async operator -- so this one is by signature and is covered by the
+# resolvability test.
+M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.IgnoreQueryFilters``1(System.Linq.IQueryable{``0});Disables soft delete wholesale; EF 8 has no selective form.
 
 # Emits Notes, which routinely carries health and safeguarding detail, into logs and exception text.
 M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder.EnableSensitiveDataLogging;Leaks PII into logs and exception text.
 
-# Widened once the audit interceptor moved to TimeProvider. It previously called DateTimeOffset.UtcNow
-# directly, which is why these were absent when the ban was first written.
+# Widened once the audit interceptor moved to TimeProvider; it previously read the clock directly.
 P:System.DateTime.Now;Use TimeProvider.
 P:System.DateTime.UtcNow;Use TimeProvider.
 P:System.DateTimeOffset.Now;Use TimeProvider.

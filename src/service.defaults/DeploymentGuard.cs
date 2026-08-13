@@ -1,3 +1,5 @@
+using System.Data.Common;
+using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -29,6 +31,9 @@ public static class DeploymentGuard
     private const string ConnectionStringName = "sparkrock-rwc";
 
     private static readonly string[] LoopbackHosts = ["localhost", "127.0.0.1", "::1", "[::1]"];
+
+    /// <summary>Every keyword Npgsql accepts for the server address.</summary>
+    private static readonly string[] HostKeywords = ["Host", "Server"];
 
     /// <exception cref="InvalidOperationException">Any of the three conditions fails.</exception>
     public static void EnsureStubIdentityIsPermitted(IHostEnvironment environment, IConfiguration configuration)
@@ -62,33 +67,52 @@ public static class DeploymentGuard
     }
 
     /// <summary>
-    ///     Reads the single <c>Host</c> value, or null if there is not exactly one loopback-shaped one.
+    ///     Reads the effective host, or null if the string declares none or cannot be parsed.
     /// </summary>
     /// <remarks>
-    ///     Deliberately strict rather than clever. A comma rejects multi-host strings, where only the
-    ///     first entry might be loopback; a path separator rejects the unix-socket form, where a
-    ///     directory is not a host at all.
+    ///     Parsed with <see cref="DbConnectionStringBuilder" /> rather than split by hand. A manual
+    ///     split got three things wrong, each of which let a production host through a check that
+    ///     reported loopback:
+    ///     <list type="bullet">
+    ///         <item><c>Server</c> is a documented Npgsql alias for <c>Host</c>, and is the more
+    ///         common spelling in .NET connection strings, so this was reachable without anyone
+    ///         intending to evade the guard.</item>
+    ///         <item>Npgsql resolves the <em>last</em> occurrence of a duplicated key; a first-match
+    ///         scan reads the wrong one.</item>
+    ///         <item>A quoted value containing a semicolon fragments under a naive split.</item>
+    ///     </list>
+    ///     Multi-host and unix-socket forms return the raw value, which then fails the loopback
+    ///     comparison — rejection happens there, in one place, rather than in a branch here that
+    ///     returned the value either way and so rejected nothing.
     /// </remarks>
     private static string? ExtractHost(string? connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
             return null;
 
-        foreach (string part in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        DbConnectionStringBuilder builder = new();
+
+        try
         {
-            string[] pair = part.Split('=', 2);
-
-            if (pair.Length != 2 || !pair[0].Trim().Equals("Host", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            string host = pair[1].Trim();
-
-            if (host.Contains(',', StringComparison.Ordinal) || host.Contains('/', StringComparison.Ordinal))
-                return host;
-
-            return host;
+            builder.ConnectionString = connectionString;
+        }
+        catch (ArgumentException)
+        {
+            return null;
         }
 
-        return null;
+        // Collect every spelling rather than picking one. Npgsql treats Server as an alias for Host
+        // and resolves the last occurrence, so "Host=localhost;Server=prod" connects to prod — and a
+        // guard that reads the first key reports loopback. Rather than reimplement that precedence,
+        // treat any disagreement as unresolvable: for a control whose whole job is refusing, an
+        // ambiguous answer is a rejection, not a guess.
+        string[] hosts = HostKeywords
+            .Select(key => builder.TryGetValue(key, out object? value) ? value as string : null)
+            .Where(host => !string.IsNullOrWhiteSpace(host))
+            .Select(host => host!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return hosts.Length == 1 ? hosts[0] : null;
     }
 }

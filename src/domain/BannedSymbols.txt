@@ -6,3 +6,6 @@ P:System.DateTime.UtcNow;Use TimeProvider, injected by the caller.
 P:System.DateTimeOffset.Now;Use TimeProvider, injected by the caller.
 P:System.DateTimeOffset.UtcNow;Use TimeProvider, injected by the caller.
 P:System.DateTime.Today;Use TimeProvider and the school timezone (DEC-12).
+
+# domain has no EF query surface today; the ban is here so adding one does not quietly add this too.
+M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.IgnoreQueryFilters``1(System.Linq.IQueryable{``0});Disables soft delete wholesale.

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      The integration tier (DEC-09, conventions §6). Runs against a real PostgreSQL container, so it
+      covers what EF InMemory structurally cannot: DDL, index filters, provider error codes, query
+      plans and the xmin concurrency token.
+
+      Docker is a hard prerequisite. There is deliberately no fallback provider — a tier that
+      degrades to InMemory when Docker is missing reports green while verifying nothing.
+    -->
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="EFCore.NamingConventions" />
+      <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+      <PackageReference Include="Microsoft.NET.Test.Sdk" />
+      <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+      <PackageReference Include="Testcontainers.PostgreSql" />
+      <PackageReference Include="xunit" />
+      <PackageReference Include="xunit.runner.visualstudio" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\src\domain\domain.csproj" />
+      <ProjectReference Include="..\..\src\features\features.csproj" />
+      <ProjectReference Include="..\..\src\infra.persistence.postgre\infra.persistence.postgre.csproj" />
+    </ItemGroup>
+
+</Project>

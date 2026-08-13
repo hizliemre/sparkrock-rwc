@@ -82,9 +82,25 @@ public sealed class DeploymentGuardTests
             Environment(Environments.Development), Config("true", connectionString)));
     }
 
+    /// <summary>
+    ///     Server is a documented Npgsql alias for Host and is the more common spelling in .NET
+    ///     connection strings, so a hand-rolled scan for "Host" let a production host through a check
+    ///     that reported loopback — without anyone intending to evade anything.
+    /// </summary>
+    [Theory]
+    [InlineData("Server=prod-db-01;Database=x")]
+    [InlineData("Host=localhost;Server=prod-db-01;Database=x")]
+    [InlineData("Host=localhost;Host=prod-db-01;Database=x")]
+    public void EnsureStubIdentityIsPermitted_WhenAnAliasOrDuplicateNamesARemoteHost_Throws(string connectionString)
+    {
+        Assert.Throws<InvalidOperationException>(() => DeploymentGuard.EnsureStubIdentityIsPermitted(
+            Environment(Environments.Development), Config("true", connectionString)));
+    }
+
     [Theory]
     [InlineData("Host=127.0.0.1;Database=x")]
     [InlineData("Host=::1;Database=x")]
+    [InlineData("Server=localhost;Database=x")]
     public void EnsureStubIdentityIsPermitted_WhenHostIsAnotherLoopbackForm_DoesNotThrow(string connectionString)
     {
         DeploymentGuard.EnsureStubIdentityIsPermitted(

@@ -13,19 +13,21 @@ namespace infra.persistence.postgre.Interceptors;
 /// <remarks>
 ///     Registered <b>scoped</b>. It consumes a scoped <see cref="ICurrentUser" />, and holding one in
 ///     a singleton would capture the first request's identity for the process lifetime.
-///     <para>
-///         The delete refusal is the load-bearing half of the base-class split. Splitting makes
-///         <em>soft</em> deletion inexpressible for reference entities, not deletion:
-///         <c>Remove(school)</c> still compiles, and with no rewrite to catch it EF issues a real
-///         <c>DELETE</c> that cascades to the school's students. The rule is total rather than
-///         category-based — no marker interface, nothing to forget when an entity is added.
-///     </para>
 /// </remarks>
 internal sealed class AuditableEntityInterceptor(
     ICurrentUser currentUser,
     TimeProvider timeProvider,
     IAuditOverride auditOverride) : SaveChangesInterceptor
 {
+    private static readonly string[] SoftDeleteColumns =
+    [
+        nameof(ISoftDeletable.IsDeleted),
+        nameof(ISoftDeletable.DeletedAt),
+        nameof(ISoftDeletable.DeletedBy),
+        nameof(IAuditableEntity.ModifiedAt),
+        nameof(IAuditableEntity.ModifiedBy)
+    ];
+
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
@@ -48,10 +50,17 @@ internal sealed class AuditableEntityInterceptor(
         if (context is null)
             return;
 
+        EntityEntry<BaseEntity>[] entries = context.ChangeTracker.Entries<BaseEntity>().ToArray();
+
+        // Validate before mutating anything. Rewriting as we go means a refusal partway through
+        // leaves earlier entries already stamped and already converted to soft deletes, so a caller
+        // that catches the exception and saves again silently commits them.
+        RejectUnsupportedDeletes(entries);
+
         DateTimeOffset now = timeProvider.GetUtcNow();
         Guid actor = auditOverride.IsActive ? auditOverride.ActingUserId : currentUser.UserId;
 
-        foreach (EntityEntry<BaseEntity> entry in context.ChangeTracker.Entries<BaseEntity>())
+        foreach (EntityEntry<BaseEntity> entry in entries)
         {
             switch (entry.State)
             {
@@ -66,9 +75,24 @@ internal sealed class AuditableEntityInterceptor(
                     break;
 
                 case EntityState.Deleted:
-                    ApplyDelete(entry, now, actor);
+                    ApplySoftDelete(entry, now, actor);
                     break;
             }
+        }
+    }
+
+    private static void RejectUnsupportedDeletes(IEnumerable<EntityEntry<BaseEntity>> entries)
+    {
+        foreach (EntityEntry<BaseEntity> entry in entries)
+        {
+            if (entry.State is not EntityState.Deleted || entry.Entity is SoftDeletableEntity)
+                continue;
+
+            throw new InvalidOperationException(
+                $"{entry.Entity.GetType().Name} is not soft-deletable and cannot be removed. Physical "
+                + "deletion would bypass the query filter; deactivate the row instead, or use the audited "
+                + "purge. Note that a cascade resolves at Remove() time, so this may be a dependent of the "
+                + "entity you removed rather than the entity itself.");
         }
     }
 
@@ -86,18 +110,25 @@ internal sealed class AuditableEntityInterceptor(
             audited.CreatedAt = now;
     }
 
-    private static void ApplyDelete(EntityEntry<BaseEntity> entry, DateTimeOffset now, Guid actor)
+    /// <summary>
+    ///     Converts a delete into an update of only the columns the rewrite owns.
+    /// </summary>
+    /// <remarks>
+    ///     Setting <c>State = Modified</c> marks <em>every</em> property modified, which is silent
+    ///     data destruction for the ordinary delete-by-id pattern: <c>Remove(new Student { Id = id })</c>
+    ///     is a stub whose other properties are defaults, and EF writes all of them. Verified — the
+    ///     row came back with an empty name, a zero <c>CreatedBy</c> and a year-0001 <c>CreatedAt</c>,
+    ///     with no error, because those are all legal values.
+    ///     <para>
+    ///         Starting from <c>Unchanged</c> and marking five properties keeps the rest of the row
+    ///         untouched whether the entity was loaded or stubbed.
+    ///     </para>
+    /// </remarks>
+    private static void ApplySoftDelete(EntityEntry<BaseEntity> entry, DateTimeOffset now, Guid actor)
     {
-        if (entry.Entity is not SoftDeletableEntity softDeletable)
-        {
-            throw new InvalidOperationException(
-                $"{entry.Entity.GetType().Name} is not soft-deletable and cannot be removed. Physical "
-                + "deletion would bypass the query filter and cascade to dependents; deactivate the row "
-                + "instead, or use the audited purge.");
-        }
+        SoftDeletableEntity softDeletable = (SoftDeletableEntity)entry.Entity;
 
-        // Turn the DELETE into an UPDATE - the global query filter hides the row afterwards.
-        entry.State = EntityState.Modified;
+        entry.State = EntityState.Unchanged;
 
         ISoftDeletable deleted = softDeletable;
         deleted.IsDeleted = true;
@@ -107,5 +138,8 @@ internal sealed class AuditableEntityInterceptor(
         IAuditableEntity audited = softDeletable;
         audited.ModifiedAt = now;
         audited.ModifiedBy = actor;
+
+        foreach (string column in SoftDeleteColumns)
+            entry.Property(column).IsModified = true;
     }
 }

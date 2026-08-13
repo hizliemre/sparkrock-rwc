@@ -5,6 +5,8 @@
 T:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions;No raw SQL, ExecuteUpdate or ExecuteDelete in features. Add a named method to IDbContext instead (DEC-06, DEC-14).
 T:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions;No raw SQL in features. Add a named method to IDbContext instead (DEC-06).
 
+M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.IgnoreQueryFilters``1(System.Linq.IQueryable{``0});Disables soft delete wholesale; EF 8 has no selective form.
+
 # Clock reads belong behind TimeProvider so tests are deterministic and the September boundary is
 # resolved in the school timezone rather than the server one (DEC-03, DEC-12).
 P:System.DateTime.Now;Use TimeProvider.
