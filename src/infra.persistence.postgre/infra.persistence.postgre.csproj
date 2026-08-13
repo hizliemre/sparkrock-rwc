@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <InternalsVisibleTo Include="features.tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="EFCore.NamingConventions" Version="8.0.3" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
+      <!-- Explicit so the version flows to referencing projects: Design (PrivateAssets) pulls Relational 8.0.30
+           while Npgsql only requires 8.0.11, which otherwise leaves consumers on the older assembly (MSB3277). -->
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.30" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.30">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
+      <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+      <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\infra.persistence.sql\infra.persistence.sql.csproj" />
+      <ProjectReference Include="..\service.defaults\service.defaults.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="appsettings.json" />
+      <Content Include="appsettings.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+
+</Project>

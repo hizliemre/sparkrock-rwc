@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\domain\domain.csproj" />
+      <ProjectReference Include="..\infra.persistence.sql\infra.persistence.sql.csproj" />
+      <ProjectReference Include="..\service.defaults\service.defaults.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <InternalsVisibleTo Include="features.tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Carter" Version="8.2.1" />
+      <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.11.0" />
+      <PackageReference Include="MediatR" Version="14.2.0" />
+      <PackageReference Include="MediatR.Contracts" Version="2.0.1" />
+    </ItemGroup>
+
+</Project>
