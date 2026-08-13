@@ -1,3 +1,19 @@
+> # ⏸ DEFERRED — not implemented in this shipment
+>
+> **This specification is live and unchanged.** F12 was descoped from the current shipment as a
+> scheduling decision, not a retraction: the mission stands and this document remains the design of
+> record. It can be implemented in a later session without re-deciding anything below.
+>
+> Not struck, deliberately: the findings resolved here (O-18, O-19, O-26 through O-30) stay open and
+> stay tagged to F12, and every model affordance the importer needs is already shipped — the
+> `LegacyId` columns with their unique filtered indexes, and the `legacy_import_anomalies` table.
+>
+> **First thing to resolve when picking this up:** §10's finding that `IAuditOverride`'s
+> legacy-timestamp path is currently unreachable, because DEC-21's internal setters prevent any
+> assembly outside `infra.persistence.postgre` from populating `CreatedAt`.
+>
+> Contrast with F13, which is **cancelled** rather than deferred.
+
 ---
 feature: F12
 title: Legacy Data Import (console)

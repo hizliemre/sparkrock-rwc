@@ -426,7 +426,7 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 | F09 | **Chronic Absenteeism Status** (single + school-wide) | F01d, F01f |
 | F10 | Alerts — list and resolve (owns the DEC-18 lifecycle rules) | F01d, F01f |
 | F11 | Submission Log Query | F01d |
-| F12 | Legacy Data Import (console) | F01c, F01d, F07 |
+| F12 | Legacy Data Import (console) — **deferred, not cancelled**; see "F12 is deferred" below | F01c, F01d, F07 |
 | ~~F13~~ | ~~`TestEntity` removal + `DROP TABLE` migration~~ **Cancelled.** `TestEntity` stays in the codebase permanently — see "F13 is cancelled" below |
 
 Bold = graded minimum. Transitive closure of {F07, F08, F09} is {F00, F01a, F01a2, F01b, F01c, F01d, F01f, F07, F08, F09} — 10 of 19, so the graded minimum is genuinely reachable first.
@@ -465,6 +465,31 @@ Every item below is required by two or more features. Left unassigned, each beco
 **Edge semantics.** All edges are *blocks-start* except every F01f edge, which is *blocks-merge*: it blocks its dependant's merge rather than its start, because a slice is written against the handler tier and needs the container only to prove it. The one other blocks-merge edge belonged to F13, which is cancelled.
 
 **Concurrent development.** Files every model-touching feature edits: `IDbContext.cs`, `SparkrockRwcDbContext.cs`, `Migrations/SparkrockRwcDbContextModelSnapshot.cs`, `features/ServiceExtensions.cs`. Rules: **migrations are authored only in F01c and F01d** — a slice needing a schema change goes back to the model owner, and a non-empty `migrations:` front-matter field requires the migration owner's sign-off. One migration in flight at a time; regenerate the snapshot on rebase rather than hand-merging. `ErrorCodes` is partitioned per area so slices add files, not lines (conventions §5).
+
+**F12 is deferred.** The legacy import is **not implemented in this shipment** and its
+specification, plan and tasks remain live and unchanged. This is a scope decision, not a
+retraction: the mission stands, the source→target mapping in F12's §4 is still the design of
+record, and the feature can be picked up in a later session without re-deciding anything.
+
+The distinction from F13 matters. F13 was **cancelled** — `TestEntity` stays and its documents are
+struck. F12's documents are **not** struck, and nothing that depends on them has been unwound:
+
+- **O-18, O-19, O-26 through O-30 stay open and stay tagged to F12.** They were resolved *in F12's
+  specification*, which is exactly the artifact a later session inherits.
+- **`LegacyImportAnomaly` stays in the model and the migration.** Removing it would cost a migration
+  to add back, and only the importer writes it.
+- **The `LegacyId` columns and their unique filtered indexes stay**, on every `ILegacyEntity`. They
+  are what makes a re-run of the import safe, and F00 already honours the half it owes F12: it never
+  writes `LegacyId`, so a seeded row the importer later adopts is not un-adopted by a re-seed.
+- **`cutover.md` is unaffected** as a document, but note that its runbook cannot be executed without
+  F12 — it is a plan for a migration that has not been built.
+- **DEC-17 stands**, including its console-tool shape, which F00 has now independently validated by
+  building `src/tools.seed` the same way.
+
+What a later session needs to know: F12 is the only remaining consumer of `IAuditOverride`'s
+legacy-timestamp path, and F12's §10 records that this path is currently **unreachable** — DEC-21's
+internal setters mean no assembly outside `infra.persistence.postgre` can populate `CreatedAt`. That
+gap is unchanged and is the first thing to resolve when the feature is picked up.
 
 **F13 is cancelled.** `TestEntity` and its two slices stay in the codebase. The original argument for removing it last — that its tests are the only regression net over the interceptor, the reflective filter and the InMemory factory while F01a rewires them — is also the argument for keeping it: that coverage is the only coverage of those mechanisms that does not depend on a business feature, so it keeps testing them in isolation from whatever the attendance model becomes.
 
