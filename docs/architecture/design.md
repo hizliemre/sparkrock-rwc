@@ -166,11 +166,17 @@ A configured school timezone resolves "today" and `SchoolYear.FromDate`. Instant
 - A `DateTimeOffset` with a non-zero offset **throws** on a `timestamptz` column. Client- and import-supplied values must be normalised to UTC before `SaveChanges`.
 - A `DateTime` with `Kind=Unspecified` **throws** — and SQL Server `DATETIME` values read through ADO.NET arrive exactly that way. Every imported timestamp needs explicit `DateTime.SpecifyKind(..., Utc)` or a declared source-timezone conversion. This blocks F12 if unhandled.
 
-### DEC-13 — MediatR licensing · *blocked, decision required*
+### DEC-13 — MediatR licensing · *accepted*
 
-MediatR **14.2.0 is not permissively licensed**: RPL-1.5 (strong reciprocal, requires source release) or a paid Lucky Penny Software commercial licence. The scaffold already depends on it for `ValidationBehavior`, and DEC-05 adds `TransactionBehavior`.
+MediatR **14.2.0 is not permissively licensed**: RPL-1.5 (strong reciprocal) or a paid Lucky Penny Software commercial licence. The scaffold already depends on it for `ValidationBehavior`, and DEC-05 adds `TransactionBehavior`.
 
-For a commercial migration this needs resolution before F01. Options: purchase the commercial licence; pin to the last MIT version (11.x) and accept no upstream fixes; or replace MediatR with a hand-rolled dispatcher, which for two behaviors and ~25 handlers is a contained amount of code. Flagged, not decided.
+**Decision: stay on 14.2.0 under RPL-1.5.** No package change, no architectural impact.
+
+**Obligation this creates.** RPL-1.5 attaches on *distribution*, and unlike ordinary copyleft it also reaches deployment-as-a-service. If this API is ever distributed or offered externally, the source of this codebase — not merely modifications to MediatR — must be made available under compatible terms. Purely internal deployment does not trigger it.
+
+Consequences to respect downstream: the repository must remain source-available to anyone the system is distributed or served to; a future decision to close the source requires revisiting this and falling back to the commercial licence or a hand-rolled dispatcher (a contained replacement — one dispatch interface, a registration scan, and an ordered behavior chain over two behaviors and roughly 25 handlers).
+
+*Rejected:* the commercial licence (recurring cost for a dependency the design does not otherwise need); pinning to MIT-licensed 11.x (no upstream security fixes).
 
 ---
 
