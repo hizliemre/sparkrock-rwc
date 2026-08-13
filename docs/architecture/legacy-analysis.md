@@ -312,7 +312,7 @@ Behaviours that intentionally differ from legacy. **26 entries.**
 | V-08 ● | L-07 | Alerts never resolve | Manual resolve + auto-resolve strictly below threshold; a manual resolution is never auto-re-raised (DEC-18) | F01b, F10 | `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse` | yes | implemented | — |
 | V-09 | L-10 | School-year rule written three times | Single value object | F01b | `SchoolYearFromLocalDateTests.FromLocalDate_WhenSeptemberFirst_StartsNewYear`, `…_WhenAugustThirtyFirst_StaysInPreviousYear` | n/a | **verified** | n/a |
 | V-10 | L-11 | No foreign keys, no non-key indexes | Foreign keys plus indexes on every lookup path | F01c, F01d | migration inspection | no | proposed | n/a |
-| V-11 | — | No delete path of any kind exists | Soft delete on transactional records only | F01a | *pending* | no | proposed | n/a |
+| V-11 | — | No delete path of any kind exists | Soft delete on transactional records only | F01a | `SoftDeleteFilterTests.Model_AppliesQueryFilterToSoftDeletableEntitiesOnly` | no | **verified** | n/a |
 | V-12 | L-09 | Non-sargable `CASE` in `WHERE` | Half-open date-range predicate | F08 | `EXPLAIN` assertion, integration tier | n/a | proposed | n/a |
 | V-13 ● | — | The *procedure* accepted back-dated entry for a former school; the *form* could not back-date at all (L-16) | Rejected — membership is current-school only | F07 | *pending* | no | proposed | — |
 | V-14 ● | — | Inactive codes and inactive schools accepted | Rejected | F07 | *pending* | config toggle | proposed | — |
@@ -322,7 +322,7 @@ Behaviours that intentionally differ from legacy. **26 entries.**
 | V-18 | L-12, L-01 | Summaries and alerts stored | Recomputed from attendance, never imported | F12 | reconciliation report (§5) | no | proposed | — |
 | V-19 | D-03 | Overlapping terms resolve arbitrarily | Overlaps rejected at write | F04 | *pending* | no | proposed | n/a |
 | V-20 | D-08 | Whole grid always submitted | Partial upsert; omitted students untouched | F07 | *pending* | no | proposed | — |
-| V-21 | — | `LastUpdated`/`AlertDate` `NOT NULL DEFAULT GETDATE()` | `ModifiedAt` null on insert; projections use `ModifiedAt ?? CreatedAt` as a global convention | F01a | *pending* | n/a | proposed | n/a |
+| V-21 | — | `LastUpdated`/`AlertDate` `NOT NULL DEFAULT GETDATE()` | `ModifiedAt` null on insert; projections use `ModifiedAt ?? CreatedAt` as a global convention | F01a | `GetTestEntitiesHandlerTests.Handle_WhenNeverModified_ProjectsLastUpdatedFromCreatedAt`, `…_WhenModified_ProjectsLastUpdatedFromModifiedAt` | n/a | **verified** | n/a |
 | V-22 | — | `ResolvedBy VARCHAR(100)` | `Guid?` plus `LegacyResolvedBy` | F10 | column-type inspection | no | proposed | n/a |
 | V-23 | D-02 | Code description joined at read time | Description snapshotted onto the attendance row; redefining a description no longer changes historical display | F01d | *pending* | no | proposed | ● |
 | V-24 | L-15 | Grade filter silently inert; empty grade always passed | `?grade=` is an explicit optional filter | F06 | *pending* | no | proposed | n/a |

@@ -24,6 +24,13 @@ public static class GetTestEntities
         public required Guid Id { get; init; }
         public required string TestProperty { get; init; }
         public required DateTimeOffset CreatedAt { get; init; }
+
+        /// <summary>
+        ///     When this row last changed. Coalesced because the interceptor leaves
+        ///     <c>ModifiedAt</c> null until a row is actually modified, so an unmodified row would
+        ///     otherwise report no timestamp where the legacy column was never null.
+        /// </summary>
+        public required DateTimeOffset LastUpdatedAt { get; init; }
     }
 
     internal sealed class QueryValidator : AbstractValidator<Query>
@@ -50,7 +57,8 @@ public static class GetTestEntities
                 {
                     Id = testEntity.Id,
                     TestProperty = testEntity.TestProperty,
-                    CreatedAt = testEntity.CreatedAt
+                    CreatedAt = testEntity.CreatedAt,
+                    LastUpdatedAt = testEntity.ModifiedAt ?? testEntity.CreatedAt
                 })
                 .ToPagedResponseAsync(request.Page, request.PageSize, cancellationToken);
         }

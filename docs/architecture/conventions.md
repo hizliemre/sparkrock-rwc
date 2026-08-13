@@ -204,7 +204,7 @@ Source-generated `[LoggerMessage]` on the slice class. Never `logger.LogInformat
 
 `ErrorCodes` is `public static partial class` with one nested static class per area, **one file per area** (`ErrorCodes.Attendance.cs`), so a slice adds a file rather than a line to a twelve-way merge point.
 
-Format `AREA.CONDITION`; identifiers `SCREAMING_SNAKE`. Closed area set: `VALIDATION`, `SCHOOL`, `STUDENT`, `ATTENDANCE`, `ATTENDANCE_CODE`, `TERM`, `ALERT`, `IMPORT`, `SYSTEM`.
+Format `AREA.CONDITION` for the **value**; identifiers are **PascalCase** (`ErrorCodes.Validation.RequiredField` → `"VALIDATION.REQUIRED_FIELD"`). Upper-snake identifiers would read closer to the value but trip `CA1707`, and the value is the wire contract. A reflective test asserts every value's shape and area. Closed area set: `VALIDATION`, `SCHOOL`, `STUDENT`, `ATTENDANCE`, `ATTENDANCE_CODE`, `TERM`, `ALERT`, `IMPORT`, `SYSTEM`.
 
 `.WithErrorCode(...)` is always paired with `.WithMessage(...)` — a rule with a code and no message ships FluentValidation's default English to clients.
 

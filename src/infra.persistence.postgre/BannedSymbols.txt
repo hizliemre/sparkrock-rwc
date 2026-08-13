@@ -6,3 +6,11 @@ M:Microsoft.EntityFrameworkCore.RelationalQueryableExtensions.ExecuteDeleteAsync
 
 # Emits Notes, which routinely carries health and safeguarding detail, into logs and exception text.
 M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder.EnableSensitiveDataLogging;Leaks PII into logs and exception text.
+
+# Widened once the audit interceptor moved to TimeProvider. It previously called DateTimeOffset.UtcNow
+# directly, which is why these were absent when the ban was first written.
+P:System.DateTime.Now;Use TimeProvider.
+P:System.DateTime.UtcNow;Use TimeProvider.
+P:System.DateTimeOffset.Now;Use TimeProvider.
+P:System.DateTimeOffset.UtcNow;Use TimeProvider.
+P:System.DateTime.Today;Use TimeProvider and the school timezone.

@@ -300,7 +300,7 @@ public static partial class ErrorCodes
 }
 ```
 
-`ErrorCodes.VALIDATION_REQUIRED_FIELD` → `ErrorCodes.Validation.REQUIRED_FIELD`. Two call sites: `CreateTestEntity.CommandValidator` and `CreateTestEntityValidatorTests` (two assertions).
+`ErrorCodes.VALIDATION_REQUIRED_FIELD` → `ErrorCodes.Validation.RequiredField`. **Identifiers are PascalCase, not upper snake** — the code blocks above show the rejected casing. `CA1707` bans underscores in member names and is enabled solution-wide; the dotted-uppercase *value* is the contract and is unchanged. Two call sites: `CreateTestEntity.CommandValidator` and `CreateTestEntityValidatorTests` (two assertions).
 
 **Naming hazard, stated once:** the nested `System` class shadows the `System` namespace *inside* the `ErrorCodes` declaration. `ErrorCodes.System.UNEXPECTED` is fine everywhere else, but a future `ErrorCodes.*.cs` file must not write unqualified `System.Something` inside the partial. The closed area set in conventions §5 names `SYSTEM`, so the class name is not negotiable.
 

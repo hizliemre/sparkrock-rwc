@@ -108,6 +108,48 @@ public sealed class GetTestEntitiesHandlerTests
     }
 
     /// <summary>
+    ///     V-21. Legacy's LastUpdated was NOT NULL DEFAULT GETDATE(); the replacement leaves
+    ///     ModifiedAt null until a row is actually modified, so every last-updated projection has to
+    ///     coalesce or a freshly created row reports no timestamp at all.
+    /// </summary>
+    [Fact]
+    public async Task Handle_WhenNeverModified_ProjectsLastUpdatedFromCreatedAt()
+    {
+        FakeTimeProvider clock = InMemoryDbContextFactory.Clock();
+        DateTimeOffset createdAt = clock.GetUtcNow();
+
+        await using SparkrockRwcDbContext dbContext = InMemoryDbContextFactory.Create(clock);
+        dbContext.TestEntities.Add(new TestEntity { Id = Guid.NewGuid(), TestProperty = "untouched" });
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        GetTestEntities.QueryHandler handler = new(dbContext);
+        PagedResponse<GetTestEntities.Response> result = await handler.Handle(new GetTestEntities.Query(), CancellationToken.None);
+
+        Assert.Equal(createdAt, Assert.Single(result.Items).LastUpdatedAt);
+    }
+
+    [Fact]
+    public async Task Handle_WhenModified_ProjectsLastUpdatedFromModifiedAt()
+    {
+        FakeTimeProvider clock = InMemoryDbContextFactory.Clock();
+
+        await using SparkrockRwcDbContext dbContext = InMemoryDbContextFactory.Create(clock);
+        TestEntity entity = new() { Id = Guid.NewGuid(), TestProperty = "before" };
+        dbContext.TestEntities.Add(entity);
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        clock.Advance(TimeSpan.FromHours(3));
+        DateTimeOffset modifiedAt = clock.GetUtcNow();
+        entity.TestProperty = "after";
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        GetTestEntities.QueryHandler handler = new(dbContext);
+        PagedResponse<GetTestEntities.Response> result = await handler.Handle(new GetTestEntities.Query(), CancellationToken.None);
+
+        Assert.Equal(modifiedAt, Assert.Single(result.Items).LastUpdatedAt);
+    }
+
+    /// <summary>
     ///     A soft-deleted row is created by removing it, not by setting a flag. The interceptor
     ///     rewrites the delete, so this exercises the real path rather than simulating its outcome.
     /// </summary>
