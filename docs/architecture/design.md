@@ -101,26 +101,7 @@ EF InMemory for validators and pure handler logic; Testcontainers-backed Postgre
 
 ### DEC-10 — Tenant filter as a query filter · *superseded by DEC-15*
 
-### DEC-11 — Reference data uses `IsActive`; soft delete is structurally excluded · *amended*
-
-Reference entities (`School`, `Student`, `AttendanceCode`, `SchoolTerm`) are never soft-deleted; their lifecycle is `IsActive`, and `DELETE` performs deactivation.
-
-**The original amendment relied on convention, which VC-07 and VC-08 show is not enough:** the `INNER JOIN` against the filtered subquery is emitted regardless, and `Remove(school)` throws *only* when a dependent is tracked — with none tracked it saves silently and every projection through `School` returns zero while the student rows remain alive.
-
-Made structural instead:
-
-- Reference entities implement `IReferenceEntity`.
-- **The reflective loop skips `IReferenceEntity`**, so no query filter and no `INNER JOIN` subquery is generated for them.
-- `AuditableEntityInterceptor` throws on `EntityState.Deleted` for any `IReferenceEntity`. Tested.
-- `SharedConfiguration.ConfigureReference` adds `CHECK (is_deleted = false)`.
-
-Soft delete therefore applies only to `StudentAttendance` and `StudentAlert`, whose principals are never removed.
-
-Lifecycle classification is explicit per entity in §3 — leaving it to a category name invites the next maintainer to guess.
-
-**`AttendanceCode.Value` uniqueness is unfiltered**, and the rule is stated rather than implied: *a value is unique across active and inactive codes; deactivating a code does not free its value for reuse.* A partial index conditioned on a column nobody maintains becomes a duplicate-insertion hole the day it is ever flipped.
-
-**Deactivation is privileged.** Deactivating a `School` or `AttendanceCode` requires `IsSystemAdmin`; a `Student` requires school scope. Without this, one anonymous `DELETE` on the "present" code breaks attendance recording for every school. Reactivation is `PUT` with `isActive: true`.
+### DEC-11 — Reference data marked by `IReferenceEntity` · *superseded by DEC-20*
 
 ### DEC-12 — Timezone policy · *amended*
 
@@ -154,12 +135,53 @@ total[student]  = prior[student] + (submitted entry is absent ? 1 : 0)
 
 Attendance rows, summaries, alerts and the submission log then go in **one `SaveChangesAsync`**, atomic under EF's implicit transaction. This eliminates `BeginTransactionAsync` on the port, `ITransactionalCommand`, `TransactionBehavior`, the pipeline-ordering test, the InMemory transaction-warning suppression, and the `EnableRetryOnFailure` incompatibility (VC-15) — retries become usable rather than forbidden.
 
-**Concurrency** is handled optimistically, which is expressible through the port because `DbUpdateConcurrencyException` is in the core assembly (VC-04):
+**Concurrency** is handled optimistically. Four mechanisms, each pinned, because every one of them can be built in a way that compiles and silently does nothing:
 
-- `StudentAttendanceSummary` carries a concurrency token via `IsRowVersion()` — `UseXminAsConcurrencyToken()` is obsolete on Npgsql 8.0.11.
-- The handler retries a bounded number of times on `DbUpdateConcurrencyException`, recomputing `prior` each attempt, so the second writer sees the first's committed rows.
-- The **first-insert race** is not covered by any token, because there is no row to version (VC-03): concurrent first submissions both insert and one gets `23505` on the summary index. Same retry path; on retry the row exists and the update succeeds.
-- The handler is written to be re-runnable: no state carried across attempts.
+**1. The CLR type decides whether the token exists at all — it must be `uint`.** `IsRowVersion()` does not by itself produce a working token on Postgres; the property's type does. Verified, two entities, identical `IsRowVersion()` call:
+
+| CLR type | Store type | Column | Result |
+|---|---|---|---|
+| `uint` | `xid` | `xmin` (whatever the property is named) | **protected** |
+| `byte[]` | `bytea` | a real column nothing populates | **no protection** |
+
+With `byte[]`, EF emits `UPDATE … WHERE id = @p1 AND row_version IS NULL` — which always matches. Two writers, second wins, no exception, and the stored total is silently wrong. Every test passes.
+
+```csharp
+builder.Property<uint>("Version").IsRowVersion();   // maps to the xmin system column
+```
+
+The trap is well-signposted in the wrong direction: the obsolete `UseXminAsConcurrencyToken()` warning points at "`IsRowVersion()` or `[Timestamp]`", and `[Timestamp]` implies `byte[]`. Note the obsolete API still works identically and is only a warning — this is a style change, not a removal.
+
+Verified by an integration test asserting two concurrent updates actually throw (F01d → F01f).
+
+**2. Recovery uses `ex.Entries`, not a port widening.** After a failed `SaveChangesAsync`, EF leaves the whole unit of work in the tracker. Re-querying returns the *tracked* instance through identity resolution and discards the database values, so the stale original token is never refreshed and every attempt fails identically — verified: three attempts, three failures, zero rows written.
+
+`EntityEntry` is in the core assembly and `DbUpdateException.Entries` is populated, so the handler can recover **without any change to `IDbContext`**:
+
+| Path | Recovery | Verified |
+|---|---|---|
+| Token mismatch | `foreach (EntityEntry e in ex.Entries) await e.ReloadAsync();` | attempt 2 saves |
+| Summary first-insert | detach the `Added` summary entry, load the committed row, re-apply | attempt 2 saves |
+
+An earlier draft added `ClearTracking()` to the port. Not needed — `ex.Entries` is reachable from `features` today.
+
+**3. Constraint violations must arrive as a domain type.** `PostgresException` is unreachable from `features` (VC-23), so the handler cannot inspect `SqlState` or `ConstraintName`. `SparkrockRwcDbContext` **overrides `SaveChangesAsync`** (not an interceptor — `SaveChangesFailed` cannot replace a thrown exception), catches `DbUpdateException`, and maps `InnerException as PostgresException` through the conventions §5 table:
+
+- a constraint marked *retryable* → `ConcurrencyConflictException(constraintName)` in `domain/Exceptions/`
+- every other mapped constraint → `ConflictException`
+- unmapped → rethrown
+
+**4. Both races retry, and the bound is a named constant.** `AttendanceSave.MaxAttempts = 3` (initial plus two), no backoff, defined once in `domain`. Retryable constraints:
+
+| Race | Constraint | On retry |
+|---|---|---|
+| Summary already updated | token mismatch → `DbUpdateConcurrencyException` | re-read `prior`, recompute |
+| Summary first-insert | `ix_student_attendance_summaries_student_id_school_year_start` | row now exists → update branch |
+| Attendance first-insert | `ix_student_attendances_student_id_attend_date` | row now exists → update branch |
+
+The third was previously mapped straight to 409, which would have failed a whole 28-student batch on one racing student. On exhaustion: 409 `ATTENDANCE.CONCURRENT_SUBMISSION`.
+
+The retry predicate matches on constraint name and rethrows otherwise — matching on `DbUpdateException` alone would retry a permanent FK or check violation until the bound is exhausted.
 
 Because everything goes through the change tracker, the audit interceptor and soft-delete rewrite both run — unlike `ExecuteUpdate`/`ExecuteDelete`, which bypass the interceptor and hard-delete respectively (VC-11), and are banned.
 
@@ -178,7 +200,7 @@ public interface ICurrentUser
 {
     Guid UserId { get; }
     string DisplayName { get; }
-    IReadOnlyCollection<Guid> AuthorizedSchoolIds { get; }   // materialised to Guid[] before Contains
+    IReadOnlyCollection<Guid> AuthorizedSchoolIds { get; }
     bool IsSystemAdmin { get; }
 }
 ```
@@ -192,9 +214,11 @@ The stub returns `IsSystemAdmin = true`. The point is not the stub's answer — 
 V-07c, V-17 and DEC-15 interact in ways no single divergence entry captures. Stated once, here.
 
 - **Counts span schools** within the school year (V-07c). The chronic-absenteeism figure a school reads therefore includes absences accrued elsewhere. This is a genuine safeguarding requirement **and** a cross-tenant disclosure — the read side carries a business sign-off marker, not only the write side.
-- **The governing threshold is the student's current school**, read through `Student.SchoolId`, not the summary's `SchoolId`. The summary's `SchoolId` is school-of-record for filtering only. Responses carry `thresholdSourceSchoolId` so the figure is never unattributable.
-- **A transfer does not migrate alerts.** Open alerts stay with the raising school; the receiving school evaluates afresh against its own threshold. Alert duplicate-suppression is keyed `(StudentId, AlertType, SchoolYearStart)` regardless of school, so the receiving school cannot raise a duplicate for a period already flagged.
-- **The former school retains** read access to attendance rows it recorded, but not to the student's current roster or subsequent attendance.
+- **The governing threshold is the student's current school**, read through `Student.SchoolId`, not the summary's `SchoolId`. The summary's `SchoolId` is school-of-record for filtering only.
+- **Suppression is keyed per school**: `(StudentId, AlertType, SchoolYearStart, SchoolId)`. Keying it school-agnostically produced a safeguarding failure — while a former school's alert was open, the receiving school could neither raise its own nor see or resolve the existing one (DEC-15 returns 404), and a former school's manual resolution suppressed alerting at the new school for the rest of the year. Notification-level deduplication is the right place to collapse duplicates, not the database.
+- **Access follows `Student.SchoolId`.** A former school loses access at transfer. An earlier draft granted it retained read access to rows it recorded; that is not implementable under DEC-15's single membership check, and the obvious repair — "authorised for the current school **or** any row's school" — is an existence-and-prior-relationship oracle on the endpoint DEC-15 exists to harden. Logged as V-28.
+
+**`thresholdSourceSchoolId` is never returned.** An earlier draft added it for attribution. It is the student's *current* school, so returning it to a former school discloses where a child moved to — precisely the datum that must not flow backwards for a transfer driven by care placement or domestic abuse. Responses carry the threshold **value** plus a discriminator (`"thresholdSource": "currentSchool" | "requestingSchool"`); the school id stays in the audit record.
 
 ### DEC-17 — Legacy import is a console tool, not an endpoint · *accepted*
 
@@ -212,13 +236,47 @@ Carter discovery is `DependencyContextAssemblyCatalog(Assembly.GetEntryAssembly(
 
 ### DEC-18 — Alert lifecycle · *accepted*
 
-V-08 gave raise-above-threshold and auto-resolve-below-threshold with no hysteresis, which leaves three holes.
+- **Resolve at `< threshold`. No hysteresis.** An earlier draft resolved only below `threshold − 1`. That created a permanent contradictory state at exactly `threshold − 1` — alert open in F10, student not chronic in F09, with nothing saying which a school should believe — and F09 is graded minimum. It also reinstated L-07 by a different route: raise a school's threshold from 10 to 20 and an alert raised at 11 needs the count to fall below 19, but absence counts are monotonically non-decreasing under partial-upsert semantics, so the alert becomes permanent. The oscillation hysteresis guarded against requires a clerk repeatedly toggling one day's record, and the manual-resolution rule below already terminates that after one cycle.
+- **A manual resolution is never auto-re-raised** within the same school year and school. Otherwise a documented human decision is silently discarded by the next save that recounts at or above threshold.
+- **Comparisons use the school's current threshold**, not `ThresholdAtRaise`, which is audit-only. Changing a threshold does **not** retroactively re-evaluate; alerts re-evaluate when that student's attendance next changes. **A threshold change therefore requires manual triage** — F10 provides the query listing alerts whose `ThresholdAtRaise` differs from their school's current threshold. Without that query the rule silently strands alerts.
+- **One `StudentAlert` row is one episode.** Unique index `(StudentId, AlertType, SchoolYearStart, SchoolId) WHERE resolved_at IS NULL AND is_deleted = false` makes a double-raise impossible at the database. The `is_deleted` term is not optional: a soft-deleted open alert would otherwise occupy the slot invisibly and forever.
+- Resolution is recorded on the alert itself (`ResolvedAt`, `ResolvedBy`, `ResolutionSource ∈ {Manual, AutoBelowThreshold}`, `ResolutionReason`), not in a child table. A re-raise creates a new episode row, so each cycle already has its own audit trail.
 
-- **Hysteresis.** Auto-resolve fires only below `threshold − 1`, not at the boundary. Without it a student oscillating at the threshold generates unbounded raise/resolve churn — real safeguarding-notification noise.
-- **A manual resolution is never auto-re-raised** within the same school year. Otherwise a documented human decision is silently discarded by the next save that recounts at or above threshold.
-- **Comparisons use the school's current threshold**, not `ThresholdAtRaise`. `ThresholdAtRaise` is recorded for audit only. Changing a school's threshold does **not** retroactively re-evaluate existing alerts; alerts re-evaluate when that student's attendance next changes. Stated because the alternative — a re-evaluation sweep — is a feature nobody asked for.
-- **One `StudentAlert` row is one episode.** A filtered unique index on `(StudentId, AlertType, SchoolYearStart) WHERE <open>` makes a double-raise impossible at the database rather than by convention.
-- Resolution is recorded on the alert itself (`ResolvedAt`, `ResolvedBy`, `ResolutionSource ∈ {Manual, AutoBelowThreshold}`, `ResolutionReason`), not in a child table. A re-raise creates a new episode row, so each cycle already has its own audit trail — a separate append-only entity would have been append-only by assertion only, since it would inherit `BaseEntity` and its principal is soft-deletable.
+### DEC-20 — Split `BaseEntity` from `SoftDeletableEntity` · *supersedes DEC-11*
+
+DEC-11's mechanism **works** — verified: skipping `IReferenceEntity` in the reflective loop collapses the filtered subqueries to plain `INNER JOIN schools AS s0 ON s.school_id = s0.id`, the `CHECK` constraint fires (`23514`), and the interceptor guard throws on `Remove(school)`. This supersedes it for simplicity and coverage, not because it is broken.
+
+Two reasons. It takes a marker interface, a loop skip, an interceptor guard and a `CHECK` constraint — four mechanisms — to guarantee that three inherited columns are never used. And it covers only two of the four lifecycle categories in §3, leaving `StudentAttendanceSummary`, `AttendanceSubmissionLog` and `LegacyImportAnomaly` filtered-but-unguarded: soft-delete one and the row is invisible forever while its unfiltered unique index still rejects the replacement.
+
+Split the base class instead:
+
+```csharp
+public abstract class BaseEntity : IAuditableEntity          // Id + created/modified
+public abstract class SoftDeletableEntity : BaseEntity       // + IsDeleted, DeletedAt, DeletedBy
+```
+
+The reflective loop targets `SoftDeletableEntity`. Deleting a `School` stops being *expressible* rather than being blocked three ways, four dead columns leave every reference table, and `IReferenceEntity`, the loop skip, the interceptor guard and the `CHECK` constraint all disappear.
+
+Only `StudentAttendance` and `StudentAlert` derive from `SoftDeletableEntity`. Everything else derives from `BaseEntity`.
+
+A model test asserts the partition is **total and disjoint**: every entity is in exactly one bucket, and query-filter presence matches the bucket. §3's Lifecycle column is asserted against it, not merely documented.
+
+Unchanged from DEC-11: reference lifecycle is `IsActive`; `DELETE` deactivates; `AttendanceCode.Value` is unique **unfiltered**, so deactivating never frees a value for reuse; deactivating a `School` or `AttendanceCode` requires `IsSystemAdmin`, a `Student` requires school scope — and that privilege check attaches to the `IsActive` transition **wherever it occurs**, enforced in one shared place, because `PUT` with `isActive: false` otherwise reaches the same state without it.
+
+### DEC-21 — Audit fields are writable only by the interceptor · *new*
+
+`IAuditableEntity` declares seven `{ get; internal set; }` members and `BaseEntity` re-declares them all `public`, so the restriction is void — the interceptor writes through the public setters and tests hand-set `CreatedAt` and `IsDeleted` directly. Three review rounds left this untouched while DEC-03 and the testing conventions came to *depend* on the interceptor being the only writer.
+
+Made real. `BaseEntity` exposes the audit members with `private set` and implements the mutating half explicitly:
+
+```csharp
+public DateTimeOffset CreatedAt { get; private set; }
+DateTimeOffset IAuditableEntity.CreatedAt { get => CreatedAt; set => CreatedAt = value; }
+```
+
+`domain.csproj` gains `InternalsVisibleTo("infra.persistence.postgre")` so the interceptor can cast and stamp. EF materialises private setters without configuration.
+
+Tests never assign audit fields. They advance a `FakeTimeProvider` between inserts, and create a soft-deleted row with `Remove()` + `SaveChangesAsync` rather than setting `IsDeleted`. Three existing tests violate this and are migrated in F01a: `Handle_ProjectsIdAndPropertyAndCreatedAt`, `Handle_OrdersByCreatedAtDescending` (both hand-set `CreatedAt`, which the interceptor overwrites on insert regardless of `TimeProvider`) and `Handle_ExcludesSoftDeletedEntities` (hand-sets `IsDeleted`).
 
 ### DEC-19 — Records retention and erasure · *accepted*
 
@@ -234,12 +292,14 @@ DEC-11 removes every deletion path from reference entities, which for K-12 PII r
 
 Calendar values are `DateOnly`; instants are `DateTimeOffset` (UTC). Every entity's lifecycle is explicit.
 
-| Entity | Lifecycle | Notes |
+Base class is the lifecycle (DEC-20): `SoftDeletableEntity` gets the soft-delete columns and the query filter; `BaseEntity` gets neither, so soft-deleting it is not expressible.
+
+| Entity | Base | Notes |
 |---|---|---|
-| `School` | reference | `Name`, `IsActive`, `AbsenceAlertThreshold` (nullable), **`TimeZoneId`** (DEC-12) |
-| `Student` | reference | `SchoolId`, `FirstName`, `LastName`, `Grade` (nullable), `IsActive` |
-| `AttendanceCode` | reference | `Value` (unique, unfiltered), `Description`, `IsAbsent`, `IsExcused`, `IsActive` |
-| `SchoolTerm` | reference | `SchoolId`, `Name`, `StartDate`, `EndDate` — non-overlapping per school (V-19) |
+| `School` | `BaseEntity` | `Name`, `IsActive`, `AbsenceAlertThreshold` (nullable), **`TimeZoneId`** (DEC-12) |
+| `Student` | `BaseEntity` | `SchoolId`, `FirstName`, `LastName`, `Grade` (nullable), `IsActive` |
+| `AttendanceCode` | `BaseEntity` | `Value` (unique, unfiltered), `Description`, `IsAbsent`, `IsExcused`, `IsActive` |
+| `SchoolTerm` | `BaseEntity` | `SchoolId`, `Name`, `StartDate`, `EndDate`, **`IsActive`** — non-overlapping per school among *active* terms (V-19) |
 | `StudentAttendance` | soft-deletable | `StudentId`, `SchoolId`, `AttendDate`, `TermId?`, `AttendanceCodeId` (FK), snapshot: `AttendCode`, `AttendCodeDescription`, `IsAbsent`, `IsExcused` (D-02, V-23); `MinutesLate`, `Notes` (≤500) |
 | `StudentAttendanceSummary` | append/update | `StudentId`, `SchoolId` (school of record, V-17), `SchoolYearStart`, `TotalAbsences`, concurrency token (DEC-14) |
 | `StudentAlert` | soft-deletable | `StudentId`, `SchoolId`, `AlertType`, `SchoolYearStart`, `AbsenceCount`, `ThresholdAtRaise`, `ResolvedAt?`, `ResolvedBy?`, `ResolutionSource?`, `ResolutionReason?` |
@@ -255,12 +315,14 @@ Calendar values are `DateOnly`; instants are `DateTimeOffset` (UTC). Every entit
 ### Constraints and indexes
 
 - `StudentAttendance` — unique `(StudentId, AttendDate) WHERE is_deleted = false`
-- `StudentAttendanceSummary` — unique `(StudentId, SchoolYearStart)`
-- `StudentAlert` — unique `(StudentId, AlertType, SchoolYearStart) WHERE resolved_at IS NULL`
-- `AttendanceCode` — unique `(Value)`, unfiltered (DEC-11)
+- `StudentAttendanceSummary` — unique `(StudentId, SchoolYearStart)`, plus the `xmin` concurrency token (DEC-14)
+- `StudentAlert` — unique `(StudentId, AlertType, SchoolYearStart, SchoolId) WHERE resolved_at IS NULL AND is_deleted = false` (DEC-16, DEC-18)
+- `AttendanceCode` — unique `(Value)`, unfiltered (DEC-20)
 - Unique `(LegacyId) WHERE legacy_id IS NOT NULL` per migrated entity
-- `CHECK (school_year_start BETWEEN 1900 AND 2100)`; `CHECK (is_deleted = false)` on reference tables
+- `CHECK (school_year_start BETWEEN 1900 AND 2100)`. No `CHECK (is_deleted = false)` is needed — DEC-20 removes the column from the entities that would have carried it
 - Foreign keys on every relationship; indexes on `StudentAttendance (SchoolId, AttendDate)`, `Student (SchoolId, IsActive)`, `StudentAlert (StudentId, SchoolYearStart)`
+
+Only entities deriving from `SoftDeletableEntity` may carry a `WHERE is_deleted = false` index filter; the model test in DEC-20 asserts this.
 
 Index filters are hand-written in snake_case — the naming convention does not rewrite `HasFilter` (VC-09). Constraint names are pinned with `HasDatabaseName` so the error mapping in conventions §5 cannot drift. Table names pluralise once `DbSet`s exist (VC-21); the migration is authored against the plural names.
 
@@ -334,9 +396,9 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 |---|---|---|
 | F00 | Seed data — attendance codes, one school with terms and a roster | F01c |
 | F01a | Kernel: `ICurrentUser` + scope, `TimeProvider` registration, interceptor rewiring and lifetime, `IAuditOverride`, deployment guard, error envelope + `BusinessRuleException`/`NotFoundException`/`ConflictException` + `WithApi()`, `MapGroup("api/v1")`, `23505` translation, existing-test migration | — |
-| F01a2 | Hygiene: rotate and remove committed passwords, `.gitignore`, `LICENSE`, `global.json`, `.editorconfig`, `Directory.Build.props`, `Directory.Packages.props`, banned-API analyzer, CORS allowlist, `NpgsqlDataSource` singleton, drop `AddDbContextFactory`, HTTPS/HSTS, `AllowedHosts` | — |
-| F01b | `SchoolYear` value object + converter + threshold constant + boundary tests | — |
-| F01c | Reference model + migration 1: `School` (incl. `TimeZoneId`), `Student`, `AttendanceCode`, `SchoolTerm`, `IReferenceEntity`, `ILegacyEntity` | F01a, F01b |
+| F01a2 | Enforcement + hygiene: `.editorconfig` (with `EnforceCodeStyleInBuild`), `Directory.Build.props`, `Directory.Packages.props`, banned-API analyzer, `global.json`, `LICENSE`, `.gitignore`; rotate the **three** committed passwords and move the design-time connection string to user secrets + env (updating `DbContextFactory` and CLAUDE.md in the same commit); CORS allowlist, `NpgsqlDataSource` singleton, drop `AddDbContextFactory`, HTTPS/HSTS, `AllowedHosts` | — |
+| F01b | `SchoolYear` value object + converter + threshold constant + alert/chronic evaluation functions + boundary tests | — |
+| F01c | Reference model + migration 1: `School` (incl. `TimeZoneId`), `Student`, `AttendanceCode`, `SchoolTerm` (incl. `IsActive`) | F01a, F01a2, F01b |
 | F01d | Attendance model + migration 2: attendance, summary (+ concurrency token), alert, submission log, anomaly table, filtered indexes | F01c |
 | F01f | Testcontainers fixture and integration test project | F01a |
 | F02 | Schools CRUD | F01c |
@@ -352,9 +414,33 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 | F12 | Legacy Data Import (console) | F01c, F01d, F07 |
 | F13 | `TestEntity` removal + `DROP TABLE` migration + CLAUDE.md reference-slice update | F07, F08, F09 verified |
 
-Bold = graded minimum. **F01e is gone** — DEC-14 removed the transaction seam.
+Bold = graded minimum. Transitive closure of {F07, F08, F09} is {F00, F01a, F01a2, F01b, F01c, F01d, F01f, F07, F08, F09} — 10 of 19, so the graded minimum is genuinely reachable first.
 
-Edges corrected from earlier drafts: **F08 no longer depends on F03** (V-23 snapshots the description, so history never joins the code table); **F09 no longer depends on F02** (it needs the `School` column from F01c, not the CRUD slice); **F01b is a predecessor of F01c** only because the threshold constant lands there; **F11 depends only on F01d**; **F00 exists at all** — F07 rejects unknown codes and students, and nothing else in the graph creates them.
+### Shared artifacts — one named owner each
+
+Every item below is required by two or more features. Left unassigned, each becomes N incompatible implementations.
+
+| Artifact | Owner | Consumers |
+|---|---|---|
+| `ICurrentUser`, `ISchoolScoped`, `WhereAuthorized`, `EnsureAuthorized` | F01a | every scoped slice |
+| `IAuditOverride`, `SystemImportUser` | F01a | F01a, F12 |
+| `BusinessRuleException`, `Error`, `NotFoundException`, `ConflictException`, `ConcurrencyConflictException` | F01a | all |
+| `ErrorCodes.Validation.cs`, `ErrorCodes.System.cs` seed + the flat-constant rename | F01a | all |
+| Error envelope, `CustomizeProblemDetails`, `UseStatusCodePages`, camelCase path transform, `WithApi()` | F01a | all |
+| `PagedResponse<T>` + `PageInfo` + `?page/?pageSize` binding | F01a | F02, F05, F08, F09, F10, F11 |
+| `IDbContext.ClearTracking()`; `SaveChangesAsync` override translating `PostgresException` | F01a | F07 |
+| Constraint-name → error-code registry (F01a ships it injectable; the feature authoring a constraint adds its row) | F01a | F01c, F01d, F03, F07 |
+| `MapGroup("api/v1")` | F01a | all |
+| CLAUDE.md reference-slice caveat | F01a | all — it is the first file every workstream reads |
+| `SchoolYear` + converter (registered once in `ConfigureConventions`) | F01b | F07, F08, F09, F12 |
+| `AbsenceThreshold` default constant (V-26) | F01b | F07, F09 |
+| `AlertEvaluation` + `ChronicAbsenteeism` pure functions | F01b | F07, F09, F10, F12 |
+| Absence recount function (extracted from F07, not inlined) | F01b | F07, F12 |
+| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F03, F04, F07, F08, F10 |
+
+`F01f` gains edges to F03, F04, F08 and F10 — each has a `Verified by` that only the integration tier can satisfy.
+
+**F01e is gone** — DEC-14 removed the transaction seam.
 
 **Edge semantics.** All edges are *blocks-start* except F13's, which is *blocks-merge* — F13 waits on F07/F08/F09 being verified, not merely started. F01f blocks F07's merge rather than its start.
 

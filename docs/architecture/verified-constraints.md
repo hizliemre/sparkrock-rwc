@@ -48,7 +48,7 @@ DbUpdateConcurrencyException: The database operation was expected to affect 1 ro
 but actually affected 0 row(s).
 ```
 
-`UseXminAsConcurrencyToken()` is obsolete on Npgsql 8.0.11 (`CS0618`) — use `IsRowVersion()`.
+`UseXminAsConcurrencyToken()` is obsolete on Npgsql 8.0.11 (`CS0618`) — but see **VC-28**: `IsRowVersion()` alone is not sufficient. The CLR type decides whether a token exists at all.
 
 ## VC-05 — EF Core 8 supports one query filter per entity type
 
@@ -206,3 +206,54 @@ Via `DbUpdateException.InnerException as PostgresException` — `SqlState` and `
 ## VC-27 — `SplitQuery` is configured globally
 
 `WithPostgre` sets `UseQuerySplittingBehavior(SplitQuery)`. Every query with a collection `Include` issues N round trips, and split queries without a top-level `OrderBy` can return inconsistent pages.
+
+---
+
+## VC-28 — `IsRowVersion()` protection depends on the CLR type, not the call
+
+Two entities, identical `IsRowVersion()` configuration, same context:
+
+```
+clr=UInt32  store=xid    column=xmin      -> PROTECTED
+clr=Byte[]  store=bytea  column=version   -> NO PROTECTION (lost update)
+```
+
+With `byte[]` Npgsql creates a real `bytea` column nothing populates, and EF emits `UPDATE … WHERE id = @p1 AND row_version IS NULL` — always matching. Second writer wins, no exception, stored total silently wrong.
+
+With `uint` the property maps to the `xmin` **system column** regardless of the property's name; no physical column is created, and the loser gets `DbUpdateConcurrencyException`.
+
+`UseXminAsConcurrencyToken()` is obsolete but still works identically — a warning, not a removal. Its obsolete message points at `[Timestamp]`, which implies `byte[]`, i.e. directly at the broken form.
+
+## VC-29 — Retry recovery is reachable from `features` via `ex.Entries`
+
+`IDbContext` exposes no `ChangeTracker` and no `Entry` (both `CS1061`), but `EntityEntry` is in the core assembly and `DbUpdateException.Entries` is populated (count 3 for a three-entity batch). Verified recoveries:
+
+| Path | Recovery | Result |
+|---|---|---|
+| `DbUpdateConcurrencyException` | `foreach (EntityEntry e in ex.Entries) await e.ReloadAsync();` | attempt 2 saves; `attendances=2 summaryTotal=2 logs=1` |
+| Summary-insert `23505` | detach the `Added` summary, load the committed row | attempt 2 saves; `summaries=1 attendances=1 logs=1` |
+
+Without recovery: identity resolution returns the tracked instance and discards database values, so three attempts fail identically and **zero rows are written**.
+
+`ReloadAsync`, `GetDatabaseValuesAsync` and `DbSet<T>.Local` are all reachable from the closure.
+
+## VC-30 — Every `IReadOnlyCollection<Guid>` runtime type translates
+
+`Guid[]`, `List<Guid>`, `HashSet<Guid>`, `ReadOnlyCollection<Guid>`, `ImmutableArray<Guid>`, `ImmutableList<Guid>` and `Array.AsReadOnly()` all produce `WHERE … school_id = ANY (@__ids_0)`. So does closing over the interface property directly, and so does the generic `T : ISchoolScoped` form where `SchoolId` is an interface member access. Empty scope yields 0 rows.
+
+`.ToArray()` is sufficient but **not** necessary.
+
+## VC-31 — `SchoolYear` admits no range query
+
+- `s.SchoolYearStart.StartYear >= 2020` → `InvalidOperationException: The LINQ expression … could not be translated` (member access on a converted value).
+- `s.SchoolYearStart > lo` → `CS0019: Operator '>' cannot be applied` — a `readonly record struct` generates equality only.
+
+Equality, `GroupBy`, `OrderBy`, the composite unique index and the `CHECK` constraint all work. The documented `?schoolYear=<int>` endpoints are unaffected; a year-range filter would need comparison operators plus a translatable path.
+
+## VC-32 — One `SaveChangesAsync` is one implicit transaction
+
+Forcing a `23505` on the attendance insert rolled back the summary, alert and log with it: `after rollback: summaries=0 alerts=0 logs=0`.
+
+## VC-33 — `SparkrockRwcDbContext` is not reachable from a console importer
+
+It is `internal sealed`, and `infra.persistence.postgre.csproj` grants `InternalsVisibleTo` only to `features.tests`. DEC-17's importer needs an added entry or a public factory; conventions §6 adds one for `features.integration.tests` but not for the importer.

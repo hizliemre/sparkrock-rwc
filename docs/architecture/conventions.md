@@ -69,27 +69,59 @@ One shape for every error response, framework-generated included. `AddProblemDet
 
 ```json
 {
-  "type": "...", "title": "One or more validation errors occurred.",
+  "type": "https://sparkrock.example/errors/attendance-submission-rejected",
+  "title": "The submission was rejected.",
   "status": 400, "traceId": "...",
   "errorCode": "ATTENDANCE.SUBMISSION_REJECTED",
-  "errors": [
-    { "path": "entries[3].attendCode", "code": "ATTENDANCE.UNKNOWN_CODE",
+  "violations": [
+    { "source": "body", "path": "entries[3].attendCode", "code": "ATTENDANCE.UNKNOWN_CODE",
       "message": "Attendance code 'XX' does not exist or is inactive." },
-    { "path": "entries[7].studentId",  "code": "ATTENDANCE.STUDENT_NOT_IN_SCHOOL",
-      "message": "Student does not belong to this school." }
+    { "source": "body", "path": "entries[7].studentId",  "code": "ATTENDANCE.STUDENT_NOT_ON_ROSTER",
+      "message": "Student is not on this school's roster." }
   ]
 }
 ```
 
-`errors` is an **array of objects**, deliberately not `ValidationProblemDetails`' `IDictionary<string, string[]>` — a dictionary of message arrays has nowhere to put the per-error code, which is the exact defect the current `ValidationExceptionHandler` has (it projects `failure.ErrorMessage` and discards `failure.ErrorCode`).
+**The member is `violations`, not `errors`.** `ValidationProblemDetails` serialises `errors` as an *object*, so any code path producing one would emit a different shape at the same JSON pointer. `Microsoft.AspNetCore.Mvc.ValidationProblemDetails`, `Results.ValidationProblem` and `TypedResults.ValidationProblem` are banned (§7) so the collision cannot occur at all.
 
-`path` is camelCased **per segment**, preserving indexers: FluentValidation emits `Entries[3].AttendCode`; `JsonNamingPolicy.CamelCase` lowercases only the first character of the whole key and is therefore wrong. One shared transform in `api`, not per slice.
+- `source` ∈ `body` | `path` | `query` | `header` — a malformed `{date}` route value and a body field of the same name are otherwise indistinguishable.
+- `path` is camelCased **per segment**, preserving indexers. FluentValidation emits `Entries[3].AttendCode`; `JsonNamingPolicy.CamelCase` lowercases only the first character of the whole key, and never touches string *values* at all — so the transform runs where the violation is constructed, in one shared helper in `api`.
+- `title` is defined per status, not per handler. `type` is a stable URI under one namespace.
+- `message` is server-side English, a developer aid. **`code` is the contract**; clients branch on it and render their own text.
+- Messages may echo bounded structured values (a code, an index) but **never** free-text fields. `Notes` never appears in a response body.
+- Top-level `errorCode` for a plain validator failure is `VALIDATION.FAILED`.
+- `violations` is present iff the failure is per-item — validation or `BusinessRuleException`. Omitted on 404/409/500.
 
-Error messages may echo bounded structured values (a code, an index) but **never** free-text fields. `Notes` never appears in a response body.
+### The existence oracle rule
+
+For per-entry reference failures, **an unknown id, an id belonging to another school, and a soft-deleted id emit the identical `code`, `message` and `path`.** `ATTENDANCE.STUDENT_NOT_FOUND` must not exist; `ATTENDANCE.STUDENT_NOT_ON_ROSTER` covers all three.
+
+Implement as a single set difference against `students.Where(s => ids.Contains(s.Id) && s.SchoolId == schoolId)`, so the cases are indistinguishable **by construction** rather than by discipline. A handler test asserts a random Guid and a real other-school student produce byte-identical violation objects.
 
 ### Accumulated errors
 
-Reference checks in the save pipeline run unconditionally and report together — staged short-circuiting costs a round trip per defect. The carrier is a `BusinessRuleException(IReadOnlyList<Error>)` in `domain/Exceptions/`, with its own handler. Handlers do not hand-construct `FluentValidation.ValidationException`.
+```csharp
+public sealed record Violation(string Source, string Path, string Code, string Message);
+public sealed class BusinessRuleException(string errorCode, IReadOnlyList<Violation> violations) : Exception;
+```
+
+Both in `domain/Exceptions/`. Handlers emit CLR-cased paths (`Entries[3].AttendCode`); `api` camelCases them. Handlers never hand-construct `FluentValidation.ValidationException`.
+
+**Status is decided by the addressed resource, never by an accumulated item.** The school-exists and school-active checks therefore run *before* the accumulating block and throw `NotFoundException` / `ConflictException` immediately — a single exception cannot be both 404 and 400. Everything about body entries accumulates into one 400.
+
+### Framework-generated responses
+
+`AddProblemDetails(o => o.CustomizeProblemDetails = ...)` **plus `app.UseStatusCodePages()`** — the customisation alone does not cover routing 404s, 405s, 415s or minimal-API binding failures, which never reach an `IExceptionHandler`.
+
+The callback runs on *every* ProblemDetails write, including those a handler already populated, so it must be **set-if-absent** for `errorCode`. Every `IExceptionHandler` writes through `IProblemDetailsService.TryWriteAsync`, never `Results.Problem(...)`, or stamping is skipped.
+
+| Status | Default code |
+|---|---|
+| 400 (malformed body/route) | `SYSTEM.MALFORMED_REQUEST` |
+| 404 (no route) | `SYSTEM.NOT_FOUND` |
+| 405 | `SYSTEM.METHOD_NOT_ALLOWED` |
+| 415 | `SYSTEM.UNSUPPORTED_MEDIA_TYPE` |
+| 500 | `SYSTEM.UNEXPECTED` — no detail leakage |
 
 ### Collections
 
