@@ -1,9 +1,9 @@
 ---
 feature: F09
 title: Chronic Absenteeism Status — single student and school-wide
-depends-on: [F01d]
+depends-on: [F01d, F01f]
 decisions:   [DEC-07, DEC-12, DEC-15, DEC-16, DEC-18, DEC-19, DEC-20]
-divergences: [V-17]
+divergences: [V-17, V-28]
 ambiguities: [D-01, D-05]
 endpoints:
   - GET /students/{studentId}/absenteeism

@@ -10,6 +10,29 @@ T:Microsoft.AspNetCore.Http.HttpResults.ValidationProblem;Write a plain ProblemD
 M:Microsoft.AspNetCore.Http.Results.ValidationProblem(System.Collections.Generic.IDictionary{System.String,System.String[]},System.String,System.String,System.Nullable{System.Int32},System.String,System.String,System.Collections.Generic.IDictionary{System.String,System.Object});Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
 M:Microsoft.AspNetCore.Http.TypedResults.ValidationProblem(System.Collections.Generic.IDictionary{System.String,System.String[]},System.String,System.String,System.String,System.String,System.Collections.Generic.IDictionary{System.String,System.Object});Write a plain ProblemDetails with `violations` in Extensions (conventions §2).
 
+# CORS wildcards (O-51). The one policy this API has reads an explicit origin list from
+# `Cors:AllowedOrigins` and deliberately offers no escape hatch, but configuration is not the only way
+# back to a wildcard -- a single line in AddCors reintroduces one, and with the anonymous stub identity
+# the same-origin policy is the only access control there is. The analyzer is the mechanism the
+# conventions treat as enforcement, so the escape hatches are named here.
+#
+# AllowAnyOrigin and SetIsOriginAllowed(...) are parameterless / single-overload methods, so the
+# documentation ID is exact; CorsPolicyProbeTests plants a call against each of these entries and
+# asserts the compiler rejects it, because a near-miss ID binds to nothing and reports nothing.
+M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.AllowAnyOrigin;Reflects any origin. Add the origin to `Cors:AllowedOrigins` instead (conventions §2, edge configuration).
+M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(System.Func{System.String,System.Boolean});A predicate is a wildcard nobody reads as one. Add the origin to `Cors:AllowedOrigins` instead.
+M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowedToAllowWildcardSubdomains;Trusts every current and future subdomain, including ones the project does not control. List the subdomains.
+# Not a wildcard, but the other half of the combination conventions §2 calls always unsafe. Nothing
+# uses it today, so banning it costs nothing and forces the decision to be taken alongside real
+# authentication rather than inherited from a scaffold.
+M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.AllowCredentials;Credentials plus an origin list is a decision for when authentication exists (conventions §2).
+#
+# AllowAnyHeader and AllowAnyMethod are deliberately NOT banned, and both are in use at the sanctioned
+# site. They widen what a *already-allowed* origin may send; the browser evaluates the origin first, so
+# neither grants anything to an origin absent from the allowlist. Banning them would require a
+# suppression at the one place they are correct, which trains people to write suppressions -- and would
+# say nothing about the failure O-51 describes.
+
 # Clock reads belong behind TimeProvider.
 P:System.DateTime.Now;Use TimeProvider.
 P:System.DateTimeOffset.Now;Use TimeProvider.

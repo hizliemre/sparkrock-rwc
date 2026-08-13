@@ -3,7 +3,7 @@ feature: F10
 title: Alerts — list and resolve
 depends-on: [F01d, F01f]
 decisions:   [DEC-06, DEC-07, DEC-15, DEC-16, DEC-18, DEC-20, DEC-21]
-divergences: [V-08, V-22]
+divergences: [V-08, V-22, V-28]
 ambiguities: [D-05]
 endpoints:
   - GET /schools/{schoolId}/alerts

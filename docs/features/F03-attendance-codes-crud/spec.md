@@ -1,7 +1,7 @@
 ---
 feature: F03
 title: Attendance Codes CRUD
-depends-on: [F01c]
+depends-on: [F01c, F01f]
 decisions:   [DEC-06, DEC-19, DEC-20]
 divergences: [V-27]
 ambiguities: []

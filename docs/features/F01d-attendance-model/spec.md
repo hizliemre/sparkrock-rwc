@@ -1,7 +1,7 @@
 ---
 feature: F01d
 title: Attendance model and migration 2
-depends-on: [F01c]
+depends-on: [F01c, F01f]
 decisions:   [DEC-02, DEC-06, DEC-07, DEC-12, DEC-14, DEC-16, DEC-17, DEC-18, DEC-20, DEC-21]
 divergences: [V-10, V-23]
 ambiguities: [D-02, D-03, D-05]
@@ -329,7 +329,7 @@ The registry is F01a's artifact; design §5's shared-artifact table says "the fe
 |---|---|---|
 | `ix_student_attendances_student_id_attend_date` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
 | `ix_summaries_student_id_school_year_start` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
-| `ix_student_alerts_open_episode` | 23505 | 409 `ALERT.DUPLICATE_OPEN_EPISODE` |
+| `ix_student_alerts_open_episode` | 23505 | **retryable**, then 409 `ALERT.DUPLICATE_OPEN_EPISODE` (DEC-18) |
 | `ix_submission_logs_school_id_idempotency_key` | 23505 | 409 `ATTENDANCE.DUPLICATE_SUBMISSION` |
 | `ix_student_attendances_legacy_id` | 23505 | 409 `IMPORT.DUPLICATE_LEGACY_ID` |
 

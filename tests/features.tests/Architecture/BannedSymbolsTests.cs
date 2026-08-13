@@ -47,6 +47,53 @@ public sealed class BannedSymbolsTests
                                     + "The analyzer ignores unresolvable entries silently, so this ban never fires.");
     }
 
+    /// <summary>
+    ///     A <c>M:</c> entry written with no parameter list must name a genuinely parameterless
+    ///     overload, because that is what its documentation ID binds to.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="BannedSymbol_ResolvesToARealMember" /> cannot see this: reflection matches a
+    ///     member by name regardless of signature, so an entry naming a method that only exists with
+    ///     parameters resolves happily and bans nothing.
+    ///     <para>
+    ///         That is not hypothetical. <c>M:...DbContextOptionsBuilder.EnableSensitiveDataLogging</c>
+    ///         sat in <c>infra.persistence.postgre/BannedSymbols.txt</c> and was inert — the method
+    ///         takes an optional <c>bool</c>, so its declaration ID is
+    ///         <c>EnableSensitiveDataLogging(System.Boolean)</c> and the bare form binds to nothing.
+    ///         Confirmed by compiling a call to it and getting no diagnostic, then getting RS0030 for
+    ///         the same call once the parameter list was added.
+    ///     </para>
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(AllEntries))]
+    public void BannedSymbol_WithNoParameterList_NamesAParameterlessOverload(string project, string docId)
+    {
+        if (!docId.StartsWith("M:", StringComparison.Ordinal) || docId.Contains('(', StringComparison.Ordinal))
+            return;
+
+        string name = Regex.Replace(docId[2..], "``\\d+$", string.Empty);
+        int lastDot = name.LastIndexOf('.');
+
+        Type? declaringType = FindType(name[..lastDot]);
+
+        Assert.True(declaringType is not null, $"{project}/BannedSymbols.txt declares '{docId}', whose "
+                                               + "declaring type resolves to nothing.");
+
+        MethodInfo[] overloads = declaringType!
+            .GetMember(
+                name[(lastDot + 1)..],
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+            .OfType<MethodInfo>()
+            .ToArray();
+
+        Assert.True(
+            overloads.Any(overload => overload.GetParameters().Length == 0),
+            $"{project}/BannedSymbols.txt declares '{docId}' with no parameter list, but every overload "
+            + $"of that method takes parameters ({string.Join(" | ", overloads.Select(o => o.ToString()))}). "
+            + "The documentation ID therefore binds to nothing and the analyzer reports no error for it. "
+            + "Add the parameter list, e.g. '(System.Boolean)'.");
+    }
+
     [Fact]
     public void BannedSymbolsFiles_ExistForEverySourceProject()
     {

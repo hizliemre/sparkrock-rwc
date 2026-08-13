@@ -91,10 +91,21 @@ public static class ServiceExtensions
     ///         configurable — an allowlist plus credentials is a decision to be taken alongside real
     ///         authentication, not inherited from a scaffold.
     ///     </para>
+    ///     <para>
+    ///         The banned-symbol entries for <c>AllowAnyOrigin</c> and <c>SetIsOriginAllowed</c> stop a
+    ///         wildcard being written in code. They do <em>not</em> stop one arriving through
+    ///         configuration: <c>WithOrigins("*")</c> sets <c>AllowAnyOrigin</c> on the resulting
+    ///         policy, so a single <c>"*"</c> in <c>Cors:AllowedOrigins</c> — from any provider,
+    ///         including an environment variable on a deployment nobody reviewed — reproduces exactly
+    ///         the policy that was removed. <see cref="ValidateOrigins" /> is the half the analyzer
+    ///         cannot cover.
+    ///     </para>
     /// </remarks>
     private static void AddCors(ISparkrockRwcBuilder builder)
     {
         string[] origins = builder.Configuration.GetSection(AllowedOriginsKey).Get<string[]>() ?? [];
+
+        ValidateOrigins(origins);
 
         builder.Services.AddCors(options => options.AddPolicy(
             CorsPolicyName,
@@ -102,5 +113,49 @@ public static class ServiceExtensions
                 .WithOrigins(origins)
                 .AllowAnyMethod()
                 .AllowAnyHeader()));
+    }
+
+    /// <summary>
+    ///     Rejects any configured origin that is not a concrete scheme-and-authority.
+    /// </summary>
+    /// <remarks>
+    ///     Throws at startup rather than filtering the bad entry out. A silently dropped origin is a
+    ///     CORS failure the operator debugs in the browser console; a refused start names the problem
+    ///     at the point the mistake was made. This mirrors the deployment guard, which also refuses to
+    ///     start rather than degrading.
+    /// </remarks>
+    internal static void ValidateOrigins(IReadOnlyList<string> origins)
+    {
+        ArgumentNullException.ThrowIfNull(origins);
+
+        for (int index = 0; index < origins.Count; index++)
+        {
+            string origin = origins[index];
+
+            if (origin == "*")
+                throw new InvalidOperationException(
+                    $"'{AllowedOriginsKey}[{index}]' is \"*\". WithOrigins(\"*\") sets AllowAnyOrigin on "
+                    + "the policy, which is the wildcard this configuration exists to prevent. List "
+                    + "each origin explicitly.");
+
+            if (string.IsNullOrWhiteSpace(origin)
+                || !Uri.TryCreate(origin, UriKind.Absolute, out Uri? parsed)
+                || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+                throw new InvalidOperationException(
+                    $"'{AllowedOriginsKey}[{index}]' is '{origin}', which is not an absolute http or "
+                    + "https URI. An origin the browser cannot match is silently never allowed.");
+
+            // An origin is scheme, host and port and nothing else. CORS compares it against the
+            // browser's Origin header ordinally, and that header never carries a path — not even a
+            // bare trailing slash. So "https://school.example/" is not a stricter spelling of the
+            // same origin, it is one that can never match, and the symptom is an unexplained CORS
+            // rejection rather than a startup error. Compared against the authority form rather than
+            // by inspecting AbsolutePath, which reports "/" for both spellings.
+            if (!string.Equals(origin, parsed.GetLeftPart(UriPartial.Authority), StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"'{AllowedOriginsKey}[{index}]' is '{origin}'. An origin carries scheme, host and "
+                    + $"port only — write it as '{parsed.GetLeftPart(UriPartial.Authority)}'. A path, "
+                    + "query, fragment or trailing slash never matches the browser's Origin header.");
+        }
     }
 }

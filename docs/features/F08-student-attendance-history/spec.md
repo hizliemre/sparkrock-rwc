@@ -1,9 +1,9 @@
 ---
 feature: F08
 title: Student Attendance History
-depends-on: [F01d]
+depends-on: [F01d, F01f]
 decisions:   [DEC-02, DEC-07, DEC-12, DEC-15, DEC-16, DEC-19, DEC-20]
-divergences: [V-12]
+divergences: [V-12, V-28]
 ambiguities: [D-01, D-02, D-05]
 endpoints:
   - GET /students/{studentId}/attendance

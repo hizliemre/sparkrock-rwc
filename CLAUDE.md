@@ -147,7 +147,7 @@ Two different keys are in play:
 
 ## Build enforcement
 
-`Directory.Build.props` sets `TreatWarningsAsErrors` and `EnforceCodeStyleInBuild`, so the `.editorconfig` rules are build errors rather than IDE hints: explicit types over `var` (IDE0007) and file-scoped namespaces (IDE0161). `Directory.Packages.props` holds every package version centrally. Per-project `BannedSymbols.txt` files block raw SQL in `features`, `ExecuteDelete`/`ExecuteUpdate` in the persistence layer, and clock reads in `domain`/`features` — see `docs/architecture/conventions.md` §7.
+`Directory.Build.props` sets `TreatWarningsAsErrors` and `EnforceCodeStyleInBuild`, so the `.editorconfig` rules are build errors rather than IDE hints: explicit types over `var` (**IDE0008** — IDE0007 is the *inverse* rule and can never fire while `csharp_style_var_*` is `false`; the enforcement was in fact coming from that setting's `:error` suffix, and every document naming IDE0007 was describing a mechanism that was not the one working) and file-scoped namespaces (IDE0161). `Directory.Packages.props` holds every package version centrally. Per-project `BannedSymbols.txt` files block raw SQL in `features`, `ExecuteDelete`/`ExecuteUpdate` in the persistence layer, and clock reads in `domain`/`features` — see `docs/architecture/conventions.md` §7.
 
 The reference slice `TestEntity` predates these conventions and violates several; it is removed by F13. Prefer `src/domain/ValueObjects/SchoolYear.cs` and its tests as the current example.
 

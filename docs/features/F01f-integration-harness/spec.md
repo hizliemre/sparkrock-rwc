@@ -31,7 +31,7 @@ behaviour**. Five features have `Verified by` entries that no other tier can sat
 
 None of those is expressible on EF InMemory: it has no indexes, no `SqlState`, no query plan, and no
 `xmin`. Every one of them is a *blocked* verification until this project exists — which is the whole
-reason design.md §5 records that "F01f gains edges to F03, F04, F08 and F10".
+reason design.md §5 records that F01f gains edges to F01d, F03, F08, F09 and F10 — corrected from an earlier list that named F04 (whose assertions need no container) and omitted F09 (whose central predicate is the one VC-31 governs, and whose wrong form passes on EF InMemory).
 
 The second reason is narrower and sharper: `SparkrockRwcDbContext` is `internal sealed`, and
 `infra.persistence.postgre.csproj` grants `InternalsVisibleTo` to `features.tests` only (VC-33). A new

@@ -13,7 +13,15 @@ T:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions;Raw SQL. If a
 M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.IgnoreQueryFilters``1(System.Linq.IQueryable{``0});Disables soft delete wholesale; EF 8 has no selective form.
 
 # Emits Notes, which routinely carries health and safeguarding detail, into logs and exception text.
-M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder.EnableSensitiveDataLogging;Leaks PII into logs and exception text.
+#
+# Both overloads are named, and both carry the parameter list. This entry was previously written as
+# `...EnableSensitiveDataLogging` with no parameter list and was INERT: the method has an optional
+# `bool`, so its declaration ID is `(System.Boolean)`, and the parameterless form binds to nothing.
+# The resolvability test passed it because reflection matches a member by name regardless of
+# signature -- see BannedSymbolsTests.BannedSymbol_WithNoParameterList_NamesAParameterlessOverload,
+# added to close exactly that hole. Verified by compiling a call to each overload.
+M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder.EnableSensitiveDataLogging(System.Boolean);Leaks PII into logs and exception text.
+M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder`1.EnableSensitiveDataLogging(System.Boolean);Leaks PII into logs and exception text.
 
 # Widened once the audit interceptor moved to TimeProvider; it previously read the clock directly.
 P:System.DateTime.Now;Use TimeProvider.

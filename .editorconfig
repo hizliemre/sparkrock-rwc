@@ -25,6 +25,12 @@ trim_trailing_whitespace = false
 csharp_style_var_for_built_in_types = false:error
 csharp_style_var_when_type_is_apparent = false:error
 csharp_style_var_elsewhere = false:error
+# IDE0008 is the rule that fires on `var` when the style above is `false`. IDE0007 is its inverse --
+# "use var instead of explicit type" -- and with the style set to false it can never fire, so the
+# entry below it is inert and was the only rule id this file and conventions §3 named. Verified by
+# compiling `var x = 42;` under these settings: the diagnostic reported is IDE0008.
+dotnet_diagnostic.IDE0008.severity = error
+# Kept so a future flip of the style options cannot quietly downgrade the inverse direction.
 dotnet_diagnostic.IDE0007.severity = error
 
 # File-scoped namespaces. Zero block-scoped namespaces exist in the repository.
@@ -64,5 +70,6 @@ dotnet_diagnostic.CA1515.severity = none
 # time, and hand-editing a migration risks diverging it from the model snapshot.
 dotnet_diagnostic.IDE0161.severity = none
 dotnet_diagnostic.IDE0007.severity = none
+dotnet_diagnostic.IDE0008.severity = none
 dotnet_diagnostic.CA1707.severity = none
 generated_code = true
