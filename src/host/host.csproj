@@ -12,6 +12,10 @@
 
     <ItemGroup>
       <ProjectReference Include="..\api\api.csproj" />
+      <!-- IsAspireProjectResource=false: the Aspire SDK treats ProjectReference as a resource to
+           orchestrate, not an assembly to link. This one is a plain library reference, so the
+           AppHost can use the opt-in key constant rather than duplicating the string. -->
+      <ProjectReference Include="..\service.defaults\service.defaults.csproj" IsAspireProjectResource="false" />
     </ItemGroup>
 
 </Project>

@@ -36,8 +36,15 @@ public static class ServiceExtensions
         return builder;
     }
 
+    /// <summary>
+    ///     Mounts every Carter module under the versioned API group.
+    /// </summary>
+    /// <remarks>
+    ///     Modules map paths relative to this group. Writing <c>/api/...</c> inside a module doubles
+    ///     the prefix, which is why the group owns the version segment rather than each route.
+    /// </remarks>
     public static void UseSparkrockRwc(this IEndpointRouteBuilder routes)
     {
-        routes.MapGroup("api").MapCarter();
+        routes.MapGroup("api/v1").MapCarter();
     }
 }

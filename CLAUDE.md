@@ -38,6 +38,21 @@ dotnet user-secrets set "Parameters:pg-password" "<value>" --project src/host
 
 No tracked file carries a credential. `src/host/appsettings.Development.json` holds a placeholder only — the value must come from user secrets. Postgres is pinned to host port **5433** with a persistent container + data volume, so it survives AppHost restarts.
 
+### Running requires an explicit opt-in
+
+Authentication does not exist yet, so every endpoint is anonymous. The host refuses to start unless
+all three hold: the opt-in flag is set, the environment is Development, and the database host is
+loopback.
+
+```bash
+dotnet user-secrets set "Attendance:AllowAnonymousStubIdentity" "true" --project src/api
+dotnet user-secrets set "Attendance:AllowAnonymousStubIdentity" "true" --project src/host
+```
+
+The flag is deliberately absent from every committed `appsettings*.json`, and a test asserts it stays
+that way — otherwise a deployment could inherit it. `ASPNETCORE_ENVIRONMENT=Development` alone is not
+sufficient, because that is exactly what a hurried first deployment sets.
+
 In Development the API redirects `/` to the Scalar UI at `/scalar/v1` (OpenAPI doc served by Swashbuckle at `/swagger/v1/swagger.json`).
 
 ## Architecture

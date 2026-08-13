@@ -1,4 +1,5 @@
 using Projects;
+using service.defaults;
 
 IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
@@ -15,7 +16,12 @@ postgres.WithHostPort(5433);
 
 IResourceBuilder<PostgresDatabaseResource> sparkrockRwcDb = postgres.AddDatabase("sparkrock-rwc");
 
+// Forwarded, never set here. The opt-in has to be typed by a person into user secrets or the
+// environment; originating it in the AppHost would make every developer run inherit it silently.
 IResourceBuilder<ProjectResource> apiProject = builder.AddProject<api>("api")
+    .WithEnvironment(
+        "Attendance__AllowAnonymousStubIdentity",
+        builder.Configuration[DeploymentGuard.AllowAnonymousStubIdentityKey] ?? "false")
     .WithReference(sparkrockRwcDb)
     .WaitFor(postgres)
     .WaitFor(sparkrockRwcDb);

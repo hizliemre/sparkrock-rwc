@@ -8,15 +8,13 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.AddSparkrockRwc()
     .WithPostgre()
-    .WithFeatures();
+    .WithFeatures()
+    .WithApi();
 
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
 
 // CORS for external API clients (Scalar's hosted client fetches the OpenAPI document cross-origin)
 if (builder.Environment.IsDevelopment())
@@ -31,7 +29,7 @@ if (builder.Environment.IsDevelopment())
 
 WebApplication app = builder.Build();
 
-app.UseExceptionHandler();
+app.UseApiErrorHandling();
 
 if (app.Environment.IsDevelopment())
 {

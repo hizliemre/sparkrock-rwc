@@ -1,4 +1,6 @@
 using Carter;
+using features.Paging;
+using FluentValidation;
 using infra.persistence.sql;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
@@ -10,8 +12,11 @@ namespace features.TestEntities;
 
 public static class GetTestEntities
 {
-    public sealed class Query : IRequest<IReadOnlyList<Response>>
+    public sealed class Query : IRequest<PagedResponse<Response>>
     {
+        public int? Page { get; init; }
+
+        public int? PageSize { get; init; }
     }
 
     public sealed record Response
@@ -21,22 +26,33 @@ public static class GetTestEntities
         public required DateTimeOffset CreatedAt { get; init; }
     }
 
-    internal sealed class QueryHandler(IDbContext dbContext) : IRequestHandler<Query, IReadOnlyList<Response>>
+    internal sealed class QueryValidator : AbstractValidator<Query>
     {
-        public async Task<IReadOnlyList<Response>> Handle(Query request, CancellationToken cancellationToken)
+        public QueryValidator()
         {
-            List<Response> testEntities = await dbContext.TestEntities
+            RuleFor(query => query.Page).ValidPage();
+            RuleFor(query => query.PageSize).ValidPageSize();
+        }
+    }
+
+    internal sealed class QueryHandler(IDbContext dbContext) : IRequestHandler<Query, PagedResponse<Response>>
+    {
+        public async Task<PagedResponse<Response>> Handle(Query request, CancellationToken cancellationToken)
+        {
+            // The documented default sort for this resource, and it is total: CreatedAt alone is not
+            // unique, and a non-unique order under the global SplitQuery setting can repeat a row on one
+            // page and drop another (VC-27). Every default sort ends in Id for that reason.
+            return await dbContext.TestEntities
                 .AsNoTracking()
                 .OrderByDescending(testEntity => testEntity.CreatedAt)
+                .ThenBy(testEntity => testEntity.Id)
                 .Select(testEntity => new Response
                 {
                     Id = testEntity.Id,
                     TestProperty = testEntity.TestProperty,
                     CreatedAt = testEntity.CreatedAt
                 })
-                .ToListAsync(cancellationToken);
-
-            return testEntities;
+                .ToPagedResponseAsync(request.Page, request.PageSize, cancellationToken);
         }
     }
 
@@ -44,9 +60,12 @@ public static class GetTestEntities
     {
         public void AddRoutes(IEndpointRouteBuilder app)
         {
-            app.MapGet("/test-entities", async (IMediator mediator, CancellationToken cancellationToken) =>
+            app.MapGet("/test-entities", async (int? page, int? pageSize, IMediator mediator, CancellationToken cancellationToken) =>
             {
-                IReadOnlyList<Response> testEntities = await mediator.Send(new Query(), cancellationToken);
+                PagedResponse<Response> testEntities = await mediator.Send(
+                    new Query { Page = page, PageSize = pageSize },
+                    cancellationToken);
+
                 return Results.Ok(testEntities);
             })
             .WithName("GetTestEntities")
