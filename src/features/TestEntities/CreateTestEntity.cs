@@ -26,7 +26,7 @@ public static partial class CreateTestEntity
         public CommandValidator()
         {
             RuleFor(x => x.TestProperty).NotEmpty()
-                .WithErrorCode(ErrorCodes.VALIDATION_REQUIRED_FIELD)
+                .WithErrorCode(ErrorCodes.Validation.RequiredField)
                 .WithMessage("TestProperty is required");
         }
     }

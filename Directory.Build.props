@@ -1,0 +1,18 @@
+﻿<Project>
+
+    <!--
+      Shared build settings for every project in the solution.
+
+      EnforceCodeStyleInBuild is the load-bearing one: without it, the IDExxxx rules in .editorconfig
+      are IDE-only suggestions and the conventions they encode are not actually enforced anywhere.
+    -->
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+        <AnalysisLevel>latest-Recommended</AnalysisLevel>
+    </PropertyGroup>
+
+</Project>

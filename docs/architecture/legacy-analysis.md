@@ -309,8 +309,8 @@ Behaviours that intentionally differ from legacy. **26 entries.**
 | V-07a | L-08 | Per-student recount in cursor | One grouped recount for submitted students | F07 | perf only, no behaviour change | n/a | proposed | n/a |
 | V-07b | L-12 | Recount predicate filters nothing | Recount scoped to the school year by date range | F07 | *pending* | no | proposed | — |
 | V-07c ● | D-05 | Recount filtered to one school | Recount spans schools within the year | F07 | *pending* | no | proposed | — |
-| V-08 ● | L-07 | Alerts never resolve | Manual resolve + auto-resolve below threshold, with hysteresis | F10 | *pending* | yes | proposed | — |
-| V-09 | L-10 | School-year rule written three times | Single value object | F01b | *pending* | n/a | proposed | n/a |
+| V-08 ● | L-07 | Alerts never resolve | Manual resolve + auto-resolve strictly below threshold; a manual resolution is never auto-re-raised (DEC-18) | F01b, F10 | `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse` | yes | implemented | — |
+| V-09 | L-10 | School-year rule written three times | Single value object | F01b | `SchoolYearFromLocalDateTests.FromLocalDate_WhenSeptemberFirst_StartsNewYear`, `…_WhenAugustThirtyFirst_StaysInPreviousYear` | n/a | **verified** | n/a |
 | V-10 | L-11 | No foreign keys, no non-key indexes | Foreign keys plus indexes on every lookup path | F01c, F01d | migration inspection | no | proposed | n/a |
 | V-11 | — | No delete path of any kind exists | Soft delete on transactional records only | F01a | *pending* | no | proposed | n/a |
 | V-12 | L-09 | Non-sargable `CASE` in `WHERE` | Half-open date-range predicate | F08 | `EXPLAIN` assertion, integration tier | n/a | proposed | n/a |
@@ -327,7 +327,7 @@ Behaviours that intentionally differ from legacy. **26 entries.**
 | V-23 | D-02 | Code description joined at read time | Description snapshotted onto the attendance row; redefining a description no longer changes historical display | F01d | *pending* | no | proposed | ● |
 | V-24 | L-15 | Grade filter silently inert; empty grade always passed | `?grade=` is an explicit optional filter | F06 | *pending* | no | proposed | n/a |
 | V-25 | L-16 | Date fixed at form load; no back-dating | Date is an explicit request parameter, bounded (not future, within a configured back-dating window) | F07 | *pending* | config toggle | proposed | ● |
-| V-26 | L-10 | Threshold default `10` written twice | Single `domain` constant used by both F07 and F09 | F01b | *pending* | n/a | proposed | n/a |
+| V-26 | L-10 | Threshold default `10` written twice | Single `domain` constant used by both F07 and F09 | F01b | `AbsenceRulesTests.ResolveThreshold_WhenSchoolThresholdNull_ReturnsDefaultOfTen` | n/a | **verified** | n/a |
 
 **Preserved behaviours** — deliberately unchanged, listed so the log is not read as exhaustive by omission:
 

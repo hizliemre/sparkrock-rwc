@@ -1,0 +1,68 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+
+#### Conventions enforced at build time ####
+# These are the rules conventions.md marks as mechanically enforced. They are errors rather than
+# warnings because Directory.Build.props sets TreatWarningsAsErrors, and a rule that only warns in
+# an IDE is not enforcement — twelve parallel workstreams will not all see the squiggle.
+
+# Explicit types over var. The scaffold uses explicit types throughout; this keeps it that way.
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_when_type_is_apparent = false:error
+csharp_style_var_elsewhere = false:error
+dotnet_diagnostic.IDE0007.severity = error
+
+# File-scoped namespaces. Zero block-scoped namespaces exist in the repository.
+csharp_style_namespace_declarations = file_scoped:error
+dotnet_diagnostic.IDE0161.severity = error
+
+#### Style the existing code already follows ####
+csharp_using_directive_placement = outside_namespace:warning
+csharp_prefer_braces = when_multiline:silent
+csharp_style_expression_bodied_methods = false:silent
+csharp_style_expression_bodied_properties = true:silent
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_readonly_field = true:warning
+
+#### Deliberately relaxed ####
+# CA1062: null-checking public arguments. The solution is nullable-enabled end to end, which is the
+# check; adding guard clauses on every parameter would be noise.
+dotnet_diagnostic.CA1062.severity = none
+# CA1848: LoggerMessage delegates. Already mandated by conventions §4 as source-generated
+# [LoggerMessage], so the analyzer would only fire on code that is already non-conforming.
+dotnet_diagnostic.CA1848.severity = none
+
+[tests/**/*.cs]
+# CA1707 bans underscores in member names. Test methods are named
+# Method_[WhenCondition_]ExpectedResult per conventions §6 — the underscores carry the meaning, and
+# that naming is near-universal in .NET test suites. The rule is right for production, wrong here.
+dotnet_diagnostic.CA1707.severity = none
+
+# CA1515: types can be internal. Test classes must be public for xUnit discovery.
+dotnet_diagnostic.CA1515.severity = none
+
+[**/Migrations/*.cs]
+# EF Core scaffolds migrations with block-scoped namespaces and its own formatting, and will do so
+# again for every future migration. Excluding generated output is cheaper than re-editing it each
+# time, and hand-editing a migration risks diverging it from the model snapshot.
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.IDE0007.severity = none
+dotnet_diagnostic.CA1707.severity = none
+generated_code = true

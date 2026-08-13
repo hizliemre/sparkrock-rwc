@@ -25,7 +25,7 @@ public sealed class CreateTestEntityValidatorTests
         Assert.False(result.IsValid);
         ValidationFailure failure = Assert.Single(result.Errors);
         Assert.Equal(nameof(CreateTestEntity.Command.TestProperty), failure.PropertyName);
-        Assert.Equal(ErrorCodes.VALIDATION_REQUIRED_FIELD, failure.ErrorCode);
+        Assert.Equal(ErrorCodes.Validation.RequiredField, failure.ErrorCode);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public sealed class CreateTestEntityValidatorTests
         ValidationResult result = _validator.Validate(command);
 
         Assert.False(result.IsValid);
-        Assert.Equal(ErrorCodes.VALIDATION_REQUIRED_FIELD, Assert.Single(result.Errors).ErrorCode);
+        Assert.Equal(ErrorCodes.Validation.RequiredField, Assert.Single(result.Errors).ErrorCode);
     }
 
     [Fact]

@@ -17,9 +17,20 @@ public static class AbsenceRules
     /// <summary>
     ///     The threshold governing a school, falling back to <see cref="DefaultThreshold" />.
     /// </summary>
+    /// <remarks>
+    ///     A configured threshold of zero or below would make every student chronically absent and raise an alert
+    ///     for the whole roster, so it is rejected rather than honoured. Nothing in the schema prevents such a
+    ///     value being stored, which is why the guard is here as well as on the column.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The configured threshold is not positive.</exception>
     public static int ResolveThreshold(int? schoolThreshold)
     {
-        return schoolThreshold ?? DefaultThreshold;
+        if (schoolThreshold is null)
+            return DefaultThreshold;
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(schoolThreshold.Value, 1);
+
+        return schoolThreshold.Value;
     }
 
     /// <summary>

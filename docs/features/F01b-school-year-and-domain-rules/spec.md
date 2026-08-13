@@ -3,7 +3,7 @@ feature: F01b
 title: SchoolYear value object and shared domain rules
 depends-on: []
 decisions:   [DEC-07, DEC-12, DEC-16, DEC-18]
-divergences: [V-09, V-12, V-26]
+divergences: [V-08, V-09, V-26]
 ambiguities: [D-01]
 endpoints:   []
 error-codes: []
@@ -49,11 +49,11 @@ public readonly record struct SchoolYear
 | `TryParse("2026-2028")` | `false` — years must be consecutive |
 | `TryParse("2026")`, `null`, `""`, `"abcd-efgh"` | `false` |
 
-**`default(SchoolYear)` is invalid.** A record struct cannot suppress its parameterless constructor, so `default` yields `StartYear = 0` and would render `"0-1"`. `FromLocalDate` and `TryParse` never produce it; every boundary rejects `StartYear <= 0`.
+**`default(SchoolYear)` is invalid and cannot be prevented.** A record struct always has a parameterless constructor, and `TryParse` writes `default` to its out parameter on every failure path — so a caller ignoring the return value holds one. Mitigations: `FromStartYear` is the only validating constructor and bounds to `1900..2100`; `FromLocalDate` routes through it; and `ToDateRange()` guards, turning an opaque `DateOnly` error into a diagnosable one.
 
 **The date is school-local** (DEC-12). The parameter name says so. This type never reads a clock — no `DateTime.Now`, no `TimeProvider`. Callers resolve "today" in the school's zone and pass a `DateOnly`.
 
-**`ToDateRange()` is what fixes L-09** (V-12). A string comparison over a computed school year is non-sargable; a half-open date range uses the index.
+**`ToDateRange()` is the mechanism that will fix L-09.** A string comparison over a computed school year is non-sargable; a half-open date range uses the index. V-12 itself is verified by F08, which is where a query plan can be asserted — F01b only ships the range.
 
 ### 2. `SchoolYearToIntConverter` — `domain/ValueObjects/SchoolYearToIntConverter.cs`
 
@@ -80,14 +80,15 @@ public static class AbsenceRules
 ```csharp
 public static class AlertRules
 {
-    public static bool ShouldRaise(int totalAbsences, int? schoolThreshold, bool hasOpenEpisode);
-    public static bool ShouldAutoResolve(int totalAbsences, int? schoolThreshold, ResolutionSource? existingResolution);
+    public static bool ShouldRaise(int totalAbsences, int? schoolThreshold,
+                                   bool hasOpenEpisode, bool hasManualResolutionThisYear);
+    public static bool ShouldAutoResolve(int totalAbsences, int? schoolThreshold, bool hasOpenEpisode);
 }
 ```
 
-- **Raise** when chronic and no open episode exists for `(student, type, year, school)`.
+- **Raise** when chronic, no open episode exists for `(student, type, year, school)`, **and** no human has resolved one this year.
+- **A manual resolution suppresses re-raising, and the guard belongs on the raise side.** Resolving closes the episode, so `hasOpenEpisode` goes false and the next save at or above threshold would open a fresh one — discarding the judgement silently. Putting the guard on auto-resolve instead makes it inert, because a resolved episode is never a candidate for auto-resolution.
 - **Auto-resolve** at `< threshold` — **no hysteresis** (DEC-18). Resolving at `threshold − 1` created a state where F10 shows an alert open and F09 shows the student not chronic, and made alerts permanent after a threshold increase since absence counts are monotonically non-decreasing.
-- **Never auto-resolve an episode a human resolved** — `existingResolution == Manual` suppresses it for that school year.
 - Comparisons use the school's **current** threshold. `ThresholdAtRaise` is audit-only.
 
 ## Out of scope
@@ -100,5 +101,5 @@ The recount *query*, the transfer/tenancy rules, and anything touching `IDbConte
 2. Boundary tests exist for `2026-08-31` and `2026-09-01` specifically — the two dates on which D-01's ambiguity turns.
 3. `ToDateRange()` is half-open and round-trips: `FromLocalDate(range.From) == original` and `FromLocalDate(range.ToExclusive) == original + 1`.
 4. `AbsenceRules.ResolveThreshold(null) == 10`, and `IsChronicallyAbsent` is exact at the boundary (`9 → false`, `10 → true` for a threshold of 10).
-5. `AlertRules.ShouldAutoResolve` returns `false` for a manually-resolved episode at any count.
+5. `AlertRules.ShouldRaise` returns `false` at any count once a human has resolved an episode that year, and `ShouldAutoResolve` returns `false` when no episode is open.
 6. No type in this feature references `TimeProvider`, `DateTime.Now`, `DateTimeOffset.UtcNow`, or anything in `Microsoft.EntityFrameworkCore` except the converter.

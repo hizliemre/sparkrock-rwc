@@ -90,6 +90,104 @@ public sealed class SchoolYearParsingTests
         Assert.False(parsed);
         Assert.Equal(default, schoolYear);
     }
+
+    [Theory]
+    [InlineData("1899-1900")]
+    [InlineData("2101-2102")]
+    [InlineData("9999-10000")]
+    [InlineData("2147483646-2147483647")]
+    public void TryParse_WhenOutsideSupportedRange_Fails(string value)
+    {
+        bool parsed = SchoolYear.TryParse(value, out SchoolYear schoolYear);
+
+        Assert.False(parsed);
+        Assert.Equal(default, schoolYear);
+    }
+
+    [Theory]
+    [InlineData(" 2026-2027")]
+    [InlineData("2026-2027 ")]
+    [InlineData("2026 - 2027")]
+    [InlineData("\t2026-2027\n")]
+    [InlineData("+2026-+2027")]
+    [InlineData("0002026-0002027")]
+    public void TryParse_WhenNotCanonicalForm_Fails(string value)
+    {
+        bool parsed = SchoolYear.TryParse(value, out SchoolYear schoolYear);
+
+        Assert.False(parsed);
+        Assert.Equal(default, schoolYear);
+    }
+
+    [Fact]
+    public void TryParse_RoundTripsThroughToString()
+    {
+        SchoolYear original = SchoolYear.FromLocalDate(new DateOnly(2026, 9, 1));
+
+        Assert.True(SchoolYear.TryParse(original.ToString(), out SchoolYear restored));
+        Assert.Equal(original, restored);
+    }
+}
+
+public sealed class SchoolYearRangeGuardTests
+{
+    [Theory]
+    [InlineData(1899)]
+    [InlineData(2101)]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void FromStartYear_WhenOutsideSupportedRange_Throws(int startYear)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SchoolYear.FromStartYear(startYear));
+    }
+
+    [Theory]
+    [InlineData(1900)]
+    [InlineData(2100)]
+    public void FromStartYear_AtRangeBoundary_Succeeds(int startYear)
+    {
+        Assert.Equal(startYear, SchoolYear.FromStartYear(startYear).StartYear);
+    }
+
+    [Fact]
+    public void FromLocalDate_WhenBeforeSupportedRange_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SchoolYear.FromLocalDate(DateOnly.MinValue));
+    }
+
+    [Fact]
+    public void FromLocalDate_WhenAfterSupportedRange_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SchoolYear.FromLocalDate(DateOnly.MaxValue));
+    }
+
+    [Fact]
+    public void ToDateRange_NeverThrowsForAnyConstructibleValue()
+    {
+        for (int startYear = SchoolYear.MinStartYear; startYear <= SchoolYear.MaxStartYear; startYear++)
+        {
+            (DateOnly from, DateOnly toExclusive) = SchoolYear.FromStartYear(startYear).ToDateRange();
+
+            Assert.True(from < toExclusive);
+        }
+    }
+
+    [Fact]
+    public void ToDateRange_WhenDefault_ThrowsDiagnosably()
+    {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => default(SchoolYear).ToDateRange());
+
+        Assert.Contains(nameof(SchoolYear.FromStartYear), error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ToDateRange_WhenFailedParseOutValueIsUsed_ThrowsDiagnosably()
+    {
+        Assert.False(SchoolYear.TryParse("not-a-year", out SchoolYear schoolYear));
+
+        Assert.Throws<InvalidOperationException>(() => schoolYear.ToDateRange());
+    }
 }
 
 public sealed class SchoolYearDateRangeTests
@@ -142,7 +240,7 @@ public sealed class SchoolYearToIntConverterTests
     private readonly SchoolYearToIntConverter _converter = new();
 
     [Fact]
-    public void Converter_RoundTripsThroughInt()
+    public void ConvertToProvider_RoundTripsThroughInt()
     {
         SchoolYear original = SchoolYear.FromLocalDate(new DateOnly(2026, 9, 1));
 
@@ -151,5 +249,14 @@ public sealed class SchoolYearToIntConverterTests
 
         Assert.Equal(2026, stored);
         Assert.Equal(original, restored);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(int.MaxValue)]
+    public void ConvertFromProvider_WhenValueOutOfRange_Throws(int stored)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => _converter.ConvertFromProvider(stored));
     }
 }

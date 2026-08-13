@@ -19,7 +19,7 @@ public sealed class SchoolYearToIntConverter : ValueConverter<SchoolYear, int>
     public SchoolYearToIntConverter()
         : base(
             schoolYear => schoolYear.StartYear,
-            startYear => new SchoolYear { StartYear = startYear })
+            startYear => SchoolYear.FromStartYear(startYear))
     {
     }
 }

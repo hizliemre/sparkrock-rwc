@@ -40,4 +40,19 @@ public sealed class AbsenceRulesTests
         Assert.False(AbsenceRules.IsChronicallyAbsent(9, null));
         Assert.True(AbsenceRules.IsChronicallyAbsent(10, null));
     }
+
+    [Fact]
+    public void IsChronicallyAbsent_WithDistinctCountAndThreshold_ReadsArgumentsInOrder()
+    {
+        Assert.False(AbsenceRules.IsChronicallyAbsent(3, 17));
+        Assert.True(AbsenceRules.IsChronicallyAbsent(17, 3));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void ResolveThreshold_WhenSchoolThresholdNotPositive_Throws(int schoolThreshold)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => AbsenceRules.ResolveThreshold(schoolThreshold));
+    }
 }

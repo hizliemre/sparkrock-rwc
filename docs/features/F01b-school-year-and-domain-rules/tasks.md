@@ -46,7 +46,7 @@ divergences: [V-12]
 - `ToDateRange_EndsExclusiveOnNextSeptemberFirst` → 2026 ⇒ ToExclusive `2027-09-01`
 - `ToDateRange_RoundTripsThroughFromLocalDate` → `FromLocalDate(From)` is the original; `FromLocalDate(ToExclusive)` is the original + 1
 
-The round-trip test is the one that catches an off-by-one in either direction.
+The round-trip test catches a *year* off-by-one, not a *month* one — both sides read the same `StartMonth`, so shifting it to October keeps the round trip consistent. The month is pinned only by the two literal-date assertions above; do not delete them believing the round trip covers it.
 
 ---
 

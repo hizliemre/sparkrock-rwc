@@ -5,6 +5,6 @@ namespace infra.persistence.sql;
 
 public interface IDbContext
 {
-    public DbSet<TestEntity> TestEntities { get; set; }
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken);
+    DbSet<TestEntity> TestEntities { get; set; }
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

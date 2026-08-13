@@ -1,6 +1,6 @@
 using Projects;
 
-var builder = DistributedApplication.CreateBuilder(args);
+IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(args);
 
 IResourceBuilder<ParameterResource> pgPassword = builder.AddParameter("pg-password", true);
 

@@ -4,5 +4,5 @@ namespace domain;
 
 public class TestEntity: BaseEntity
 {
-    public string TestProperty { get; set; }
+    public required string TestProperty { get; set; }
 }

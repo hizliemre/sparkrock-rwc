@@ -243,12 +243,45 @@ Without recovery: identity resolution returns the tracked instance and discards 
 
 `.ToArray()` is sufficient but **not** necessary.
 
-## VC-31 — `SchoolYear` admits no range query
+## VC-31 — Member access on a converted value translates in projections, never in predicates
 
-- `s.SchoolYearStart.StartYear >= 2020` → `InvalidOperationException: The LINQ expression … could not be translated` (member access on a converted value).
-- `s.SchoolYearStart > lo` → `CS0019: Operator '>' cannot be applied` — a `readonly record struct` generates equality only.
+The distinction matters more than the range limitation, because getting it wrong is a runtime 500 rather than a compile error.
 
-Equality, `GroupBy`, `OrderBy`, the composite unique index and the `CHECK` constraint all work. The documented `?schoolYear=<int>` endpoints are unaffected; a year-range filter would need comparison operators plus a translatable path.
+**Fails to translate — any predicate touching a member of the converted value**, including plain equality:
+
+```
+s.SchoolYearStart.StartYear >= 2020   → InvalidOperationException: … could not be translated
+s.SchoolYearStart.StartYear == 2026   → InvalidOperationException: … could not be translated
+```
+
+**Translates:**
+
+| Shape | SQL |
+|---|---|
+| `Where(s => s.SchoolYearStart == year)` | whole-value comparison against the converted parameter |
+| `Select(s => s.SchoolYearStart.StartYear)` | `SELECT s.school_year_start` |
+| `GroupBy(s => s.SchoolYearStart).Select(g => g.Key.StartYear)` | `GROUP BY s.school_year_start` |
+| `years.Contains(s.SchoolYearStart)` | `= ANY (@__years_0)` |
+| `OrderBy`, the composite unique index, the `CHECK` constraint | all fine |
+
+`s.SchoolYearStart > lo` does not compile — `CS0019`, a `readonly record struct` generates equality only, and there is no `IComparable<SchoolYear>`.
+
+**Rule:** compare whole values in predicates; reach into `.StartYear` only in projections. A year *range* filter goes through `SchoolYear.ToDateRange()` against the date column.
+
+## VC-34 — A converter that validates turns one bad row into an unpageable failure
+
+`SchoolYearToIntConverter` calls `SchoolYear.FromStartYear`, which rejects values outside `1900..2100`. With a single `school_year_start = 1899` row present:
+
+```
+db.Students.ToListAsync()  → ArgumentOutOfRangeException: startYear ('1899') must be greater than or equal to '1900'
+GroupBy over the property  → same
+CountAsync()               → succeeds
+Select(x => x.Name)        → succeeds
+```
+
+The value only throws when materialised, so aggregate and projected queries still work while list queries fail entirely — and no page size avoids it.
+
+Accepted deliberately. The `CHECK (school_year_start BETWEEN 1900 AND 2100)` in F01c makes such a row unwritable, so reaching this state requires the constraint to have been disabled. Failing loudly then is better than materialising a value whose `ToDateRange()` throws later, further from the cause.
 
 ## VC-32 — One `SaveChangesAsync` is one implicit transaction
 
