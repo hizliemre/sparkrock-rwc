@@ -191,4 +191,4 @@ A green manual pass says nothing about either.
 - **Any write path.** No `PUT`, no `DELETE`, no correction endpoint; F07 owns every write to `StudentAttendance` and V-11 makes deletion soft regardless.
 - **Percentages, rates, or per-term rollups.** Chronic absenteeism is a raw count by deliberate preservation (F09); F08 returns rows.
 - **`?includeDeleted`.** `IgnoreQueryFilters` is banned (conventions §7, VC-05).
-- **Backfilling `.ProducesProblem` on `TestEntities`.** F13 removes those slices.
+- **Backfilling `.ProducesProblem` on `TestEntities`.** ~~F13 removes those slices.~~ F13 is cancelled and the backfill has been done directly on the two slices.

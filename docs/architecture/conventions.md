@@ -211,7 +211,7 @@ public static partial class CreateSchool          // partial always, logging or 
 
 Source-generated `[LoggerMessage]` on the slice class. Never `logger.LogInformation(...)`. Write paths log once after `SaveChangesAsync`; query handlers log nothing.
 
-`EventId` ranges, allocated so parallel workstreams cannot collide. Ids are unique across the `features` assembly and are **never reused** after a slice is deleted — F13 retires 1000, it does not free it.
+`EventId` ranges, allocated so parallel workstreams cannot collide. Ids are unique across the `features` assembly and are **never reused** after a slice is deleted. Note that 1000 is *in use*, not retired: F13 would have deleted the `TestEntities` slices and is cancelled.
 
 | Range | Aggregate |
 |---|---|

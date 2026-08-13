@@ -155,4 +155,4 @@ test with two seeded schools.
 - **A grade vocabulary, normalisation, or a `GET /schools/{id}/grades`.** F05 owns `Student.Grade`.
 - **Redacting or truncating `notes`.** The field is `varchar(500)` at the schema (DEC-06) and is returned as stored. Redaction is a policy nobody has specified, and a silently truncated note in an editing surface destroys data on the next save.
 - **Caching or ETags.** No feature in the graded minimum specifies conditional requests, and a cached roster is a stale roster during the ten minutes it is being filled in.
-- **Backfilling `.ProducesProblem` on `TestEntities`.** F13 removes those slices.
+- **Backfilling `.ProducesProblem` on `TestEntities`.** ~~F13 removes those slices.~~ F13 is cancelled and the backfill has been done directly on the two slices.

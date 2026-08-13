@@ -77,7 +77,12 @@ public static class GetTestEntities
                 return Results.Ok(testEntities);
             })
             .WithName("GetTestEntities")
-            .WithTags("TestEntities");
+            .WithTags("TestEntities")
+            // Backfilled when F13 was cancelled. Four feature plans deferred this on the grounds
+            // that F13 would delete the slice; it is staying, so conventions §3's rule that every
+            // documented status is declared applies to it like any other endpoint.
+            .Produces<PagedResponse<Response>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest);
         }
     }
 }

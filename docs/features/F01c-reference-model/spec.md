@@ -14,7 +14,7 @@ migrations:  [ReferenceModel]
 
 Four entities, four `IEntityTypeConfiguration`s, one migration. No endpoints, no handlers, no validators.
 
-F01c is the **schema commitment point** for reference data. Every name it writes — table, column, index, constraint — is either load-bearing for another document (conventions §5 maps constraint names to error codes) or expensive to change later (a rename is another migration, and design §5 permits migrations only in F01c, F01d and F13). The names are therefore settled here, in prose, before any DDL is generated.
+F01c is the **schema commitment point** for reference data. Every name it writes — table, column, index, constraint — is either load-bearing for another document (conventions §5 maps constraint names to error codes) or expensive to change later (a rename is another migration, and design §5 permits migrations only in F01c and F01d). The names are therefore settled here, in prose, before any DDL is generated.
 
 ## What it consumes from its dependencies
 
@@ -225,7 +225,7 @@ F01a ships the registry injectable; the feature authoring a constraint adds its 
 
 `dotnet ef migrations add ReferenceModel --project src/infra.persistence.postgre --startup-project src/infra.persistence.postgre`
 
-It is design §5's "migration 1" for the domain, and the **second** migration file: `20260813102015_Init` already exists and creates `test_entities`, which F13 drops. `ReferenceModel` touches only the four new tables.
+It is design §5's "migration 1" for the domain, and the **second** migration file: `20260813102015_Init` already exists and creates `test_entities`, which is permanent (F13 cancelled). `ReferenceModel` touches only the four new tables.
 
 Nothing calls `Database.Migrate()` at startup (CLAUDE.md), so `dotnet ef database update` is an explicit step.
 

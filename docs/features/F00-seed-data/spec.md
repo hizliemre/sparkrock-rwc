@@ -43,7 +43,7 @@ Three mechanisms were available. The other two are rejected for stated reasons, 
 
 **`HasData` in a migration — rejected, and it is not merely a rule violation.**
 
-- It puts F00's content inside a migration, and design §5 permits migrations only in F01c, F01d and F13. A non-empty `migrations:` field needs the migration owner's sign-off, so this feature would be blocked on another feature's owner for data that is not schema.
+- It puts F00's content inside a migration, and design §5 permits migrations only in F01c and F01d. A non-empty `migrations:` field needs the migration owner's sign-off, so this feature would be blocked on another feature's owner for data that is not schema.
 - It is also *unbuildable* against DEC-21. `HasData` writes literal column values and bypasses the change tracker entirely, so the audit interceptor never runs — but `created_at` and `created_by` are `NOT NULL`. Seeding them means supplying literals for properties whose setters DEC-21 made interceptor-only, which is precisely the encapsulation DEC-21 exists to establish.
 - `HasData` rows are managed by model diffing: changing a seeded name later emits an `UpdateData` in someone else's migration, and deleting one emits a `DeleteData` — a physical delete of a reference row, which DEC-20 makes an unsanctioned path.
 

@@ -1,3 +1,27 @@
+> # ⛔ CANCELLED
+>
+> **`TestEntity` stays in the codebase permanently.** This feature is not to be implemented.
+>
+> The reason it was scheduled last is the reason it was cancelled: its two slices are the only
+> coverage of the audit interceptor, the reflective soft-delete filter and the in-memory context
+> factory that does not depend on a business feature. Deleting them would have moved that coverage
+> onto entities whose shape keeps changing.
+>
+> What the cancellation settled, recorded in design §5:
+>
+> - `TestEntity` is **not** the reference slice. F02 is nominated for CRUD, F07 for the transactional
+>   shape. It predates most of the conventions and is not an example to copy.
+> - It needs **no exemption** from DEC-20's partition test. F01a's spec anticipated one; the rule is
+>   that a query filter is present exactly when the entity is soft-deletable, and `TestEntity`
+>   satisfies both sides. `LifecyclePartitionTests` sweeps every entity and names none.
+> - **EventId 1000 is in use, not retired.** Conventions §4's never-reuse rule applies to deleted
+>   slices.
+> - Migrations are authored in **F01c and F01d only**. There is no third author.
+> - The `.ProducesProblem` backfill that four plans deferred here has been done on the slices
+>   directly.
+>
+> The inventory below is kept as the record of what was analysed, not as work to do.
+
 ---
 feature: F13
 title: TestEntity removal, DROP TABLE migration, reference-slice handover

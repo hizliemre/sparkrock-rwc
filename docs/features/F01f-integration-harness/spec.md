@@ -210,8 +210,9 @@ the naming convention — is therefore verified there, not here.
 F01f substitutes the strongest equivalent the current model supports: the primary-key `23505` with
 its pinned constraint name proves the provider-error path conventions §5 depends on, and the
 physical-row assertion proves the soft-delete rewrite. Adding an index to `TestEntity` to make the
-stronger assertion possible was rejected — migrations are authored only in F01c, F01d and F13
-(design.md §5), and F13 drops the table outright.
+stronger assertion possible was rejected — migrations are authored only in F01c and F01d
+(design.md §5). The earlier form of this note added "and F13 drops the table outright"; F13 is
+cancelled and `test_entities` is permanent.
 
 ## Acceptance criteria
 

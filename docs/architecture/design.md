@@ -427,7 +427,7 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 | F10 | Alerts — list and resolve (owns the DEC-18 lifecycle rules) | F01d, F01f |
 | F11 | Submission Log Query | F01d |
 | F12 | Legacy Data Import (console) | F01c, F01d, F07 |
-| F13 | `TestEntity` removal + `DROP TABLE` migration + CLAUDE.md reference-slice update | F07, F08, F09 verified |
+| ~~F13~~ | ~~`TestEntity` removal + `DROP TABLE` migration~~ **Cancelled.** `TestEntity` stays in the codebase permanently — see "F13 is cancelled" below |
 
 Bold = graded minimum. Transitive closure of {F07, F08, F09} is {F00, F01a, F01a2, F01b, F01c, F01d, F01f, F07, F08, F09} — 10 of 19, so the graded minimum is genuinely reachable first.
 
@@ -462,11 +462,19 @@ Every item below is required by two or more features. Left unassigned, each beco
 
 **There is no F01e.** It would have been the transaction seam, and DEC-14 removed the need for one. The id is not reused.
 
-**Edge semantics.** All edges are *blocks-start* except two kinds, both *blocks-merge*: F13's, which waits on F07/F08/F09 being **verified** rather than started, and every F01f edge, which blocks its dependant's merge rather than its start — a slice is written against the handler tier and needs the container only to prove it.
+**Edge semantics.** All edges are *blocks-start* except every F01f edge, which is *blocks-merge*: it blocks its dependant's merge rather than its start, because a slice is written against the handler tier and needs the container only to prove it. The one other blocks-merge edge belonged to F13, which is cancelled.
 
-**Concurrent development.** Files every model-touching feature edits: `IDbContext.cs`, `SparkrockRwcDbContext.cs`, `Migrations/SparkrockRwcDbContextModelSnapshot.cs`, `features/ServiceExtensions.cs`. Rules: **migrations are authored only in F01c, F01d and F13** — a slice needing a schema change goes back to the model owner, and a non-empty `migrations:` front-matter field requires the migration owner's sign-off. One migration in flight at a time; regenerate the snapshot on rebase rather than hand-merging. `ErrorCodes` is partitioned per area so slices add files, not lines (conventions §5).
+**Concurrent development.** Files every model-touching feature edits: `IDbContext.cs`, `SparkrockRwcDbContext.cs`, `Migrations/SparkrockRwcDbContextModelSnapshot.cs`, `features/ServiceExtensions.cs`. Rules: **migrations are authored only in F01c and F01d** — a slice needing a schema change goes back to the model owner, and a non-empty `migrations:` front-matter field requires the migration owner's sign-off. One migration in flight at a time; regenerate the snapshot on rebase rather than hand-merging. `ErrorCodes` is partitioned per area so slices add files, not lines (conventions §5).
 
-**F13 is terminal.** Removing `TestEntity` earlier leaves the test project empty during exactly the window F01a rewires the interceptor, `IDbContext`, the InMemory factory and the soft-delete filter — those tests are the only regression net over those mechanisms. `DROP TABLE test_entities` goes in its own migration, and F02 becomes the nominated reference slice for CRUD, F07 for the transactional shape.
+**F13 is cancelled.** `TestEntity` and its two slices stay in the codebase. The original argument for removing it last — that its tests are the only regression net over the interceptor, the reflective filter and the InMemory factory while F01a rewires them — is also the argument for keeping it: that coverage is the only coverage of those mechanisms that does not depend on a business feature, so it keeps testing them in isolation from whatever the attendance model becomes.
+
+Three consequences, all now settled rather than deferred:
+
+- **It is not the reference slice.** F02 is nominated for CRUD and F07 for the transactional shape. `TestEntity` predates most of these conventions and is not an example to copy.
+- **It needs no exemption from DEC-20's partition test.** F01a's specification anticipated one, but the partition rule is that a query filter is present exactly when the entity is soft-deletable, and `TestEntity` satisfies it. `LifecyclePartitionTests` sweeps every entity and names none.
+- **EventId 1000 is in use, not retired.** Conventions §4's never-reuse rule applied to a deleted slice; this one is not deleted.
+
+The `.ProducesProblem` backfill that four plans deferred on the grounds that F13 would delete these slices has been done.
 
 ---
 

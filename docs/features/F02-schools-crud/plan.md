@@ -120,7 +120,7 @@ Then re-run `PUT` to reactivate and confirm the school returns to the default li
 
 - **Authentication or roles.** DEC-03/DEC-15's seam only; `IsSystemAdmin` comes from the stub.
 - **A purge endpoint** (O-20, DEC-19). Unassigned, and it needs an owner rather than an implementation smuggled into a CRUD feature.
-- **Backfilling `.ProducesProblem` on `TestEntities`.** F13 removes those slices.
+- **Backfilling `.ProducesProblem` on `TestEntities`.** ~~F13 removes those slices.~~ F13 is cancelled and the backfill has been done directly on the two slices.
 - **A `Scope` column value for routes F02 does not own.** F03–F05 fill their own rows; guessing theirs is how the four specs drift.
 - **Changing `NotFoundException` to carry a resource name.** It takes no message parameter by design, which is what makes the cross-tenant and genuine 404 payloads identical by construction.
 - **Global `JsonSerializerOptions` changes.** Null omission is done per property with `[JsonIgnore]`; a global change is a cross-cutting edit affecting F06–F11's shapes too, and it has no owner.

@@ -13,7 +13,7 @@ Known violations that will surface:
 - `CS8618` on `domain/TestEntity.cs:7` — `TestProperty` is non-nullable with no initialiser. Pre-existing, reported by the compatibility review, currently a warning.
 - `IDE0007` on `host/AppHost.cs:3` — `var builder`, the single `var` in the repository.
 
-Both are one-line fixes. `TestEntity` is deleted by F13 anyway, so the fix is `required` rather than a redesign.
+Both are one-line fixes. `TestEntity` is **not** deleted — F13 is cancelled — but the fix is still `required` rather than a redesign: it is a scaffold entity, not a modelled one, and widening it would imply it is worth modelling.
 
 ```
 T01a2-01  global.json                          ── no deps
@@ -31,7 +31,7 @@ T01a2-01, T01a2-07 and T01a2-08 are startable immediately.
 
 ## Ordering constraint that matters
 
-**T01a2-07 must not break the migration path.** `DbContextFactory` reads `ConnectionStrings:SparkrockRwc` from `src/infra.persistence.postgre/appsettings.json` at design time, and F01c/F01d/F13 are the only migration authors. Deleting that file without a replacement leaves them unable to run `dotnet ef`. The replacement — user secrets on the persistence project plus `ConnectionStrings__SparkrockRwc` as an env fallback — ships in the same task, and CLAUDE.md's migration section is updated with it.
+**T01a2-07 must not break the migration path.** `DbContextFactory` reads `ConnectionStrings:SparkrockRwc` from `src/infra.persistence.postgre/appsettings.json` at design time, and F01c and F01d are the only migration authors. Deleting that file without a replacement leaves them unable to run `dotnet ef`. The replacement — user secrets on the persistence project plus `ConnectionStrings__SparkrockRwc` as an env fallback — ships in the same task, and CLAUDE.md's migration section is updated with it.
 
 ## Risks
 

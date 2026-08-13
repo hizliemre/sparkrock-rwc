@@ -205,4 +205,4 @@ Plus the manual five-point read of the generated migration described above. It i
 - **No retention or purge columns.** DEC-19's purge has no feature and no owner (O-20), and Q-01 is unanswered. Inventing a `purged_at` now would be a column with no writer.
 - **No `DateOfBirth`.** Design §3: not modelled, not imported.
 - **No changes to `AuditableEntityInterceptor`, `ICurrentUser`, the error envelope or `SaveChangesAsync`'s exception translation.** All F01a. F01d adds registry *rows*, not the registry.
-- **No `TestEntity` removal.** F13, and it is terminal for the reason design §5 gives.
+- **No `TestEntity` removal.** F13 is cancelled; `TestEntity` is permanent.

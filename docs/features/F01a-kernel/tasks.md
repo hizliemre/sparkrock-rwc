@@ -256,7 +256,7 @@ Then:
 3. `src/api/ServiceExtensions.cs` — `WithApi()`: run the guard **first**, then register `StubCurrentUser` and `AuditOverride` scoped, `AddProblemDetails(o => o.CustomizeProblemDetails = ProblemDetailsDefaults.Customize)`, and the two handlers in order.
 4. `Program.cs` — chain `.WithApi()`, add `app.UseStatusCodePages()` before `app.UseSparkrockRwc()`. Move the ProblemDetails and exception-handler registrations out of `Program.cs`. Leave the dev CORS block alone; the allowlist is F01a2's.
 5. `host/AppHost.cs` — forward, never hardcode: `.WithEnvironment("Attendance__AllowAnonymousStubIdentity", builder.Configuration[DeploymentGuard.AllowAnonymousStubIdentityKey] ?? "false")`.
-6. **CLAUDE.md**, same commit — the opt-in and how to set it for `dotnet run`, the `api/v1` prefix, the DEC-21 "tests never assign audit fields" rule, the reference-slice caveat (`TestEntity` is F13-scheduled; F02 is the CRUD reference, F07 the transactional shape), and delete the now-false note that the InMemory tier does not run the interceptor.
+6. **CLAUDE.md**, same commit — the opt-in and how to set it for `dotnet run`, the `api/v1` prefix, the DEC-21 "tests never assign audit fields" rule, the reference-slice caveat (`TestEntity` stays — F13 is cancelled — but F02 is the CRUD reference and F07 the transactional shape), and delete the now-false note that the InMemory tier does not run the interceptor.
 
 ---
 

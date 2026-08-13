@@ -19,7 +19,7 @@ migrations:  []
 
 Five slices over `School`. No schema change: F01c settled the columns, the constraints and the names.
 
-F02 is also the **nominated reference slice for CRUD** once F13 removes `TestEntity` (design §5). F03, F04 and F05 copy its shape, so a decision taken loosely here is taken four times.
+F02 is the **nominated reference slice for CRUD** (design §5). `TestEntity` stays in the codebase but is explicitly not the example to copy. F03, F04 and F05 copy its shape, so a decision taken loosely here is taken four times.
 
 ## What it consumes from its dependency
 

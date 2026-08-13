@@ -303,8 +303,7 @@ The importer matches on `LegacyId` and treats an already-present id as **done, n
 ### Resumability without a checkpoint table
 
 DEC-17 says the import is *"resumable with per-batch checkpoints"*. **F01d shipped no checkpoint
-table and F12 may not author a migration** (design §5: migrations are authored only in F01c, F01d and
-F13).
+table and F12 may not author a migration** (design §5: migrations are authored only in F01c and F01d).
 
 **Decision: resumability is derived from the target, not from stored checkpoint state.** The
 anti-join above *is* the checkpoint, and it is a better one:
@@ -862,7 +861,7 @@ not in advance.
 ## Out of scope
 
 - **Any HTTP surface.** DEC-17, §1. No endpoint, no `ICarterModule`, no MediatR.
-- **A migration.** Design §5: F01c, F01d and F13 only. Every column F12 wanted and did not get is
+- **A migration.** Design §5: F01c and F01d only. Every column F12 wanted and did not get is
   named in §14 with its consequence.
 - **Importing `StudentAttendanceSummary`, `StudentAlerts`, `AttendanceSubmissionLog` or
   `DateOfBirth`.** V-18, legacy-analysis §5, design §3.

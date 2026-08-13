@@ -160,7 +160,7 @@ Then, by inspection, the three things a green suite does not prove:
 - **No `PUT`, no `DELETE`, no un-submit.** Conventions §1 explains why this is `POST` to a subordinate collection; there is no reverse operation in the feature set.
 - **No inactive-student check** (spec §8) and no enrolment-history entity (V-13, DEC-08's deferred limitation).
 - **No config toggles for V-04 or V-14.** See conflict 7.
-- **No migration, no `DbSet`, no `IDbContext` change, no `ClearTracking()`, no model-snapshot edit.** Migrations are authored only in F01c, F01d and F13 (design §5). Anything F07 discovers as missing goes back to F01d.
+- **No migration, no `DbSet`, no `IDbContext` change, no `ClearTracking()`, no model-snapshot edit.** Migrations are authored only in F01c and F01d (design §5). Anything F07 discovers as missing goes back to F01d.
 - **No pessimistic locking, no `FOR UPDATE`, no raw SQL, no `ExecuteUpdate`/`ExecuteDelete`** (VC-01, VC-02, VC-11, conventions §7).
 - **No `EnableRetryOnFailure`.** DEC-14 makes it *usable* by removing user-initiated transactions (VC-15); enabling it is still a separate decision requiring `Database.CreateExecutionStrategy()`, and it would interact with F07's own bounded retry.
 - **No metrics counter for retries.** O-40 is right that DEC-14's bound cannot be tuned without one, and it belongs to F01a2. F07 substitutes a `Warning` log per retry (EventId 1501) as the minimum observability.

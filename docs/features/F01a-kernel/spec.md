@@ -186,7 +186,9 @@ This failure is not silent (EF throws at model build) but it is not obvious eith
 
 `domain/TestEntity.cs` becomes `public sealed class TestEntity : SoftDeletableEntity`. Its columns are therefore unchanged and no migration is produced.
 
-This is deliberate and temporary. DEC-20 says only `StudentAttendance` and `StudentAlert` derive from `SoftDeletableEntity`; `TestEntity` is not in §3's table at all. Keeping it soft-deletable preserves `Handle_ExcludesSoftDeletedEntities` — design.md §5 records that the `TestEntity` tests are *the only regression net* over the reflective loop, the interceptor and the InMemory factory during exactly this window. **DEC-20's total-and-disjoint partition test, authored in F01c/F01d, must exempt `TestEntity` by name with a comment pointing at F13.**
+This is deliberate and, since F13's cancellation, permanent. DEC-20 says only `StudentAttendance` and `StudentAlert` derive from `SoftDeletableEntity`; `TestEntity` is not in §3's table at all. Keeping it soft-deletable preserves `Handle_ExcludesSoftDeletedEntities` — the `TestEntity` tests are the only coverage of the reflective loop, the interceptor and the InMemory factory that does not depend on a business feature.
+
+**No exemption was needed.** This paragraph previously required DEC-20's partition test to exempt `TestEntity` by name. It does not: the partition rule is that a query filter is present exactly when the entity is soft-deletable, and `TestEntity` satisfies it on both sides. `LifecyclePartitionTests` sweeps every entity and names none — an exemption would have been a hole nobody needed.
 
 ### Interceptor rewiring
 
@@ -571,7 +573,7 @@ Stated as one rule for every later test: **tests never assign audit fields.** Th
 
 F01a owns the reference-slice caveat (design.md §5 ownership table) — CLAUDE.md is the first file every workstream reads, and it currently presents `TestEntity` as the shape to copy without qualification. The same commit records:
 
-- `TestEntity` is scheduled for deletion in F13. `F02` is the nominated reference slice for CRUD and `F07` for the transactional shape.
+- `TestEntity` stays (F13 cancelled), but `F02` is the nominated reference slice for CRUD and `F07` for the transactional shape.
 - Slices are `static partial` and `sealed`; requests are `public sealed class`, responses `public sealed record` (conventions §3) — the scaffold's `GetTestEntities` is not `partial`.
 - Routes mount under `api/v1`, and modules map **group-relative** paths.
 - Audit fields are interceptor-only (DEC-21); tests never assign them.
@@ -597,7 +599,7 @@ F01a owns the reference-slice caveat (design.md §5 ownership table) — CLAUDE.
 - **No Testcontainers fixture and no integration project** — F01f. Every assertion here that depends on relational behaviour (the `SaveChangesAsync` catch actually firing, `WhereAuthorized` translating to `= ANY`, the `EndpointDataSource` walk) is deferred there rather than faked.
 - **No school-local "today"** — needs `School.TimeZoneId`, which arrives in F01c (DEC-12).
 - **No purge operation** (DEC-19, O-20 — unassigned).
-- **No `TestEntity` removal** — F13, terminal.
+- **No `TestEntity` removal** — F13 is cancelled; it stays.
 - **DEC-20's total-and-disjoint partition test over §3's Lifecycle column** — the entities do not exist; F01c/F01d.
 
 ---

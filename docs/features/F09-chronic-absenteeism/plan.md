@@ -188,4 +188,4 @@ either.
 - **A trend, multi-year, or district-level aggregate.** New contracts with no consumer and a new tenancy question.
 - **`?minAbsences=` or a client-supplied threshold.** A second source of truth against DEC-18.
 - **An index or materialised column to make the worklist sort indexable.** A migration, and F09 may not author one (design §5).
-- **Backfilling `.ProducesProblem` on `TestEntities`.** F13 removes those slices.
+- **Backfilling `.ProducesProblem` on `TestEntities`.** ~~F13 removes those slices.~~ F13 is cancelled and the backfill has been done directly on the two slices.

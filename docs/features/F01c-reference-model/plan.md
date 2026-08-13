@@ -145,5 +145,5 @@ Then `Down`: `dotnet ef database update Init` must drop all four tables cleanly.
 - **`HasData` seeding.** F00 owns seed data, has no design (O-31), and `HasData` would put a second feature's content inside F01c's migration.
 - **Touching `InMemoryDbContextFactory`.** F01a is already rewiring it for the interceptor; two features editing the same file in the same window is exactly the concurrency hazard design §5 warns about.
 - **Widening `InternalsVisibleTo`.** VC-33 records that the importer cannot reach `SparkrockRwcDbContext`, and conventions §6 adds an entry for `features.integration.tests`. Both are other features' problems; F01c adds no entry.
-- **Registering an `IEntityTypeConfiguration` for `TestEntity` changes, or removing it.** F13 is terminal for a reason: those tests are the only regression net over the interceptor and filter mechanisms while F01a rewires them.
+- **Registering an `IEntityTypeConfiguration` for `TestEntity` changes, or removing it.** Those tests are the only coverage of the interceptor and filter mechanisms that is independent of any business feature, which is why F13 was cancelled rather than merely deferred.
 - **`EXPLAIN` assertions on the new indexes.** V-12's `EXPLAIN` evidence is F08's, at the integration tier. Asserting a plan against four empty tables would assert a sequential scan.
