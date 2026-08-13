@@ -17,6 +17,13 @@ public static class ServiceExtensions
 
         services.AddEndpointsApiExplorer();
 
+        // DEC-12 requires submitted dates to be bounded and calls the lower bound "a configured
+        // back-dating window". Bound rather than constant because the number (30) is an engineering
+        // default with no business input, and V-25 ● is unsigned — the section may be absent, in which
+        // case the defaults on the options type apply.
+        services.Configure<Attendance.AttendanceSaveOptions>(
+            builder.Configuration.GetSection(Attendance.AttendanceSaveOptions.SectionName));
+
         Assembly featuresAssembly = typeof(ServiceExtensions).Assembly;
 
         services.AddMediatR(cfg =>

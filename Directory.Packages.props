@@ -38,6 +38,7 @@
         <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Configuration.UserSecrets" Version="8.0.1" />
         <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+        <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
         <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
     </ItemGroup>
 
@@ -52,6 +53,18 @@
 
     <ItemGroup Label="Analyzers">
         <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4" />
+        <!--
+          Roslyn, for the architecture tests that assert on source syntax rather than on a loaded
+          type — QueryFilterTests, because conventions §7's one-sanctioned-site rule is not
+          expressible to BannedApiAnalyzers (O-39).
+
+          It belongs here and not in features.tests.csproj. A PackageVersion item declared in a
+          project file resolves correctly but makes Rider render every centrally-managed package as
+          a phantom file in that project's tree, each marked "does not exist in the file system" —
+          because Directory.Packages.props is imported into the project and its items then have
+          nowhere sensible to be displayed.
+        -->
+        <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     </ItemGroup>
 
     <ItemGroup Label="Testing">

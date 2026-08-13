@@ -5,21 +5,9 @@
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
 
-    <!--
-      Roslyn, for the architecture tests that assert on source syntax rather than on a loaded type.
-      QueryFilterTests needs it because conventions §7's HasQueryFilter rule has one sanctioned
-      declaration site and BannedApiAnalyzers cannot express "everywhere except here" (O-39).
-
-      The version is declared here rather than in Directory.Packages.props only because this change
-      landed alongside concurrent work in that file; moving the PackageVersion across is a follow-up
-      and changes nothing about resolution.
-    -->
     <ItemGroup>
-      <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+      <!-- Roslyn, for the architecture tests that parse source rather than inspect loaded types. -->
       <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
-    </ItemGroup>
-
-    <ItemGroup>
       <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
       <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
       <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -31,6 +19,14 @@
       <ProjectReference Include="..\..\src\api\api.csproj" />
       <ProjectReference Include="..\..\src\features\features.csproj" />
       <ProjectReference Include="..\..\src\infra.persistence.postgre\infra.persistence.postgre.csproj" />
+      <!--
+        F00's seeder. Referenced here rather than given a tools.seed.tests project of its own:
+        conventions §6 names two test projects, and a third is a change to the testing convention
+        rather than to this feature. It is also what lets one test assert that the seed's copy of
+        F03's attendance-code normaliser agrees with the original, since this assembly is the only
+        one that can see both.
+      -->
+      <ProjectReference Include="..\..\src\tools.seed\tools.seed.csproj" />
     </ItemGroup>
 
 </Project>
