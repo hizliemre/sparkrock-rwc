@@ -13,4 +13,4 @@ Verbatim copies of the legacy AttendanceSystem artifacts supplied for the migrat
 
 365 lines total. Original location: `~/Downloads/AttendanceSystem`.
 
-This is the complete set that was supplied. Nine further database objects are referenced by these files but were never provided — see §1 of the analysis.
+This is the complete set that was supplied. Nine further objects are referenced by these files but were never provided — six database objects plus a VB helper, a Crystal report and a config file. See §1 of the analysis.

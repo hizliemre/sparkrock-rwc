@@ -7,36 +7,40 @@ dotnet run --project src/host      # Postgres container + API + dashboard (needs
 dotnet test                        # full suite
 ```
 
-> Authentication is deferred behind a stub. **This build must not run against real student data** — every endpoint is anonymous. A startup guard enforces it outside Development.
+> **Planned:** authentication sits behind a stub, so every endpoint will be anonymous until it lands. The design requires a startup guard refusing to build the host outside Development. Neither exists yet — this repository is currently the scaffold plus the migration design.
 
-Detail: [`docs/architecture/design.md`](docs/architecture/design.md), [`docs/architecture/legacy-analysis.md`](docs/architecture/legacy-analysis.md). Legacy source vendored at [`docs/legacy/`](docs/legacy/); per-feature specs in [`docs/features/`](docs/features/).
+Non-normative summary. Canonical detail: [design.md](docs/architecture/design.md) (decisions, model, feature graph) · [legacy-analysis.md](docs/architecture/legacy-analysis.md) (defects, ambiguities, divergences) · [verified-constraints.md](docs/architecture/verified-constraints.md) · [conventions.md](docs/architecture/conventions.md) · [cutover.md](docs/architecture/cutover.md) · [legacy source](docs/legacy/) · [feature specs](docs/features/).
 
 ## Architectural decisions
 
-**Vertical slices over a layered service tier.** One file per use case holds its request, validator, handler and endpoint. The legacy logic was one 122-line stored procedure doing seven jobs — XML parse, school-year derivation, term resolution, attendance upsert, summary recount, alert evaluation, submission logging. Slicing by use case keeps each unit small enough to test in isolation.
+**Vertical slices over a layered service tier.** One file per use case holds its request, validator, handler and endpoint. The legacy logic was one 122-line stored procedure doing seven jobs — XML parse, school-year derivation, term resolution, attendance upsert, summary recount, alert evaluation, submission logging. Slicing by use case keeps each unit testable in isolation.
 
-**The domain depends on a port.** Handlers take `IDbContext`. The port hides the *provider*, not EF Core — `IDbContext` exposes `DbSet<T>`, so `features` does reference EF Core. What it never references is Npgsql, which stays behind the composition root.
+**The domain depends on a port.** Handlers take `IDbContext`. The port hides the *provider*, not EF Core — it exposes `DbSet<T>`, so `features` does reference EF Core. What it never references is Npgsql. That boundary turned out to be load-bearing in an unexpected way: it makes every raw-SQL API unreachable from handlers, which forced two design decisions to be replaced with things that actually compile.
 
-**Fix legacy defects, log every divergence.** Bug-for-bug parity was never available: the save procedure calls an unqualified scalar UDF (`SchoolYear(@AttendDate)`), which T-SQL rejects with error 195, aborting mid-cursor after the first student's row is already committed. Every call saves one student and reports failure. Each intentional difference is recorded in a divergence log with a verification path and a sign-off marker where it changes school operations.
+**Fix legacy defects, log every divergence.** Bug-for-bug parity was never available — see below. Twenty-six divergences are recorded with a verification path, a reversibility note, and a sign-off marker on the eight that change how schools operate. [DEC-01]
 
-**Two independent stale-variable bugs corrupt data across students.** `@ExistingID` is never assigned inside the cursor loop, so once any student has an existing record, every later student without one re-updates *that* row instead of getting their own. Separately, `@IsAbsent`/`@IsExcused` go stale whenever a code is unrecognised, so an unknown code inherits the previous student's absence flags. Different triggers, both silent.
+**Two independent stale-variable bugs corrupt data across students.** `@ExistingID` *is* re-read each iteration, but a `SELECT @var = …` matching no rows leaves the variable unchanged, and it is never reset — so once any student has an existing record, every later student without one re-updates *that* row. Separately, `@IsAbsent`/`@IsExcused` go stale only on an unrecognised code, so a typo inherits the previous student's absence flags. Different triggers, both silent. [L-01, L-02]
 
-**One transaction per submission, recount through the change tracker.** An earlier design specified set-based SQL; that proved unbuildable — `ExecuteUpdate`/`ExecuteDelete` are not reachable from `features`, EF Core 8 has no upsert API, and both bypass the audit interceptor while `ExecuteDelete` hard-deletes. Instead: two saves inside one explicit transaction, everything through the change tracker so audit and soft-delete invariants hold.
+**One save, optimistic concurrency.** An earlier design used set-based SQL inside an explicit transaction; neither survived verification — `ExecuteUpdate`/`ExecuteDelete` are unreachable from `features`, bypass the audit interceptor, and hard-delete. Because a submission writes exactly one date, prior counts can be read excluding that date and totals computed in memory, so everything commits in a single `SaveChangesAsync`. A concurrency token plus bounded retry handles the lost update, which is real and reproducible. [DEC-14]
 
-**Reference data uses `IsActive`, not soft delete.** Soft-deleting a principal makes its dependents vanish from projections through the query filter's `INNER JOIN` — a deleted attendance code would erase historical attendance from view.
+**Tenant scope is an explicit predicate, not a query filter.** EF Core 8 allows one filter per entity type and silently replaces it on a second call — and the reflective soft-delete loop runs last, so a filter declared in configuration is discarded with no diagnostic. That fails closed on soft delete and open on tenancy. [DEC-15]
 
-**School year stored as an integer.** The legacy `VARCHAR(9)` format is no external contract, and if the September boundary proves wrong at cutover, correcting an integer is arithmetic rather than rewriting every stored string and the index built on it.
+**Reference data uses `IsActive`, structurally.** Soft-deleting a school makes its students vanish from every projection through the query filter's `INNER JOIN`, and `Remove()` only throws when a dependent happens to be tracked. So the reflective loop skips reference entities and the interceptor rejects deleting them, rather than relying on a convention. [DEC-11]
 
 ## Ambiguities and how they were handled
 
-**`SchoolYear()` is both missing and uncallable** — and the predicate that uses it (`SchoolYear(@AttendDate) = @SchoolYear`) references no column at all. Both operands derive from the same parameter, so it filters nothing: every stored absence total is a lifetime count, not a school-year count. Legacy summaries and alerts are therefore recomputed on import, never copied.
+**The save procedure cannot be created.** `SchoolYear(@AttendDate)` is an unqualified scalar UDF; T-SQL parses that as a built-in and rejects `CREATE PROCEDURE` with error 195. Rows written per call: zero. So the supplied artifact never produced any data, whatever populated production was a different version, and no corruption signature can be predicted — the import profiles the real data and reports rather than assuming. [L-13]
 
-**Nine referenced database objects were never supplied**, including `Schools`, `SchoolTerms`, the roster procedure, and an `Attendance` object the Crystal formula references that does not exist in the schema. Shapes were inferred from usage — column lists from how results are consumed, nullability from defensive `ISNULL`/`Nz` wrappers — and each inference is marked as an assumption rather than a fact.
+**The same statement filters nothing.** `SchoolYear(@AttendDate) = @SchoolYear` compares two values both derived from the same parameter and references no column, so absence totals are unbounded by school year — lifetime counts, or zeros, or a mix depending on the missing function. Legacy summaries and alerts are recomputed on import, never copied. [L-12]
 
-**Denormalised absence flags — bug or intent?** Kept, and treated as deliberate: it snapshots a code's meaning at save time so redefining a code cannot rewrite history. Recorded as a write-once invariant with a test, because a future maintainer "fixing the inconsistency" would cause exactly what it prevents.
+**Nine referenced objects were never supplied** — six of them database objects, including `Schools`, `SchoolTerms` and the roster procedure. Shapes were inferred from usage: column lists from how results are consumed, nullability from defensive `ISNULL`/`Nz` wrappers. Each inference is marked as an assumption.
 
-**Alerts that never resolve.** The schema has `ResolvedDate`/`ResolvedBy` and the save procedure tests them, but nothing writes them. Implemented as append-only resolution records distinguishing manual from automatic, rather than nullable columns that overwrite each other.
+**The grade filter never filters.** `cboGrade` has no change handler and is cleared immediately before the only call that reads it, so the roster procedure always receives an empty grade. This inverted an earlier reading: the parameter is not required, it is optional and empty means all grades. [L-15, D-06]
 
-**No acting user.** Legacy stored a database login in a string column; the target types it as a Guid. Resolved behind an `ICurrentUser` port — but recorded honestly as a *regression* in audit fidelity until real authentication lands, since a constant identity records less than legacy did.
+**Denormalised absence flags — bug or intent?** Kept as deliberate: it snapshots a code's meaning at save time so redefining a code cannot rewrite history. Recorded as a write-once invariant with a test, because a maintainer "fixing the inconsistency" would cause exactly what it prevents. The new model extends the snapshot to the code description, which is a divergence rather than a preserved behaviour. [D-02, V-23]
+
+**Alerts that never resolve.** The schema has `ResolvedDate`/`ResolvedBy` and the save procedure tests them, but nothing writes them. Implemented with hysteresis, and a manual resolution is never silently auto-re-raised. [DEC-18]
+
+**No acting user.** Legacy stored a database login in a string column; the target types it as a Guid. Resolved behind a port — but recorded as a *regression* in audit fidelity until authentication lands, since a constant identity records less than legacy did. [D-04, V-16]
 
 **Reporting is out of scope** — the Crystal Reports definition was not supplied.
