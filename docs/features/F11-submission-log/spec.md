@@ -52,8 +52,8 @@ Three consequences, all load-bearing:
 | From | Consumed | Failure mode if absent |
 |---|---|---|
 | **F01d** | `AttendanceSubmissionLog`, `attendance_submission_logs`, `DbSet<…>` on `IDbContext` | Nothing to read |
-| **F01d** | `ix_attendance_submission_logs_school_id_submitted_at_id` | The keyset scan degrades to a sort of the whole log per page — the one thing keyset exists to prevent (O-06) |
-| **F01d** | `StudentAttendance.SubmissionId` (O-01, decided: added) | `GET /attendance-submissions/{id}` can return the header only, and F07's `Location` points at something that cannot represent what was created |
+| **F01d** | `ix_submission_logs_school_id_submitted_at_id` | The keyset scan degrades to a sort of the whole log per page — the one thing keyset exists to prevent (O-06) |
+| **F01d** | `StudentAttendance.SubmissionId` (O-01, decided: added) + the FK's convention index | `GET /attendance-submissions/{id}` can return the header only, and F07's `Location` points at something that cannot represent what was created |
 | **F01d** | `SubmittedAt` as a real column, distinct from `created_at` | The wire sort order is pinned to DEC-03's interceptor machinery |
 | **F01a** | `ICurrentUser`, `EnsureAuthorized`, `NotFoundException` | No tenant scope, no 404 |
 | **F01a** | `PagingRules.MaxPageSize` / `DefaultPageSize`, `ValidPageSize` | Two page-size contracts, one per envelope |
@@ -115,7 +115,7 @@ same microsecond, and a batch import or a scripted client makes that likely rath
 single-column cursor then either **skips** rows (with `<`) or **repeats** them forever (with `<=`).
 
 F01d resolved the storage half: the cursor columns are `(SubmittedAt, Id)`, indexed as
-`ix_attendance_submission_logs_school_id_submitted_at_id` on `(school_id, submitted_at, id)`,
+`ix_submission_logs_school_id_submitted_at_id` on `(school_id, submitted_at, id)`,
 ascending, non-unique, unfiltered — scannable in both directions because `school_id` leads with an
 equality predicate. F11 resolves the wire half.
 
@@ -392,7 +392,7 @@ It is the same call F01a made for `VALIDATION.PAGE_SIZE_EXCEEDED`.
     `supersededCount == recordCount - entries.length` — verified by a fixture in which a second
     submission overwrites some of the first's rows.
 11. No response at any route contains `notes` or `idempotencyKey`.
-12. The keyset scan uses `ix_attendance_submission_logs_school_id_submitted_at_id` — an `EXPLAIN`
+12. The keyset scan uses `ix_submission_logs_school_id_submitted_at_id` — an `EXPLAIN`
     assertion at the integration tier, the same evidence kind V-12 uses.
 13. No migration, no `DbSet` addition, no edit to `IDbContext`, `SparkrockRwcDbContext` or the model
     snapshot.
@@ -433,7 +433,19 @@ It is the same call F01a made for `VALIDATION.PAGE_SIZE_EXCEEDED`.
 4. **`KeysetResponse<T>` and `SubmissionCursor` are shared artifacts with no owner row in design §5.**
    F11 authors them because F11 is the only consumer today. If a second keyset endpoint appears, the
    owner row should be added retroactively — the same gap F02 recorded for `IActivatable`.
-5. **`AttendanceSubmissionLog` has no retention policy and no erasure path.** Q-01 blocks F12 and the
+5. **F01d's spec and F01d's implementation name the indexes differently.** The spec writes
+   `ix_attendance_submission_logs_school_id_submitted_at_id`; `AttendanceSubmissionLogConfiguration`
+   ships `ix_submission_logs_school_id_submitted_at_id` (and `ix_submission_logs_school_id_idempotency_key`).
+   This spec uses the **as-built** names, because T11-09 asserts an `EXPLAIN` plan against a real
+   database. F01d's §5 table should be corrected to match its own configuration — the names are
+   pinned with `HasDatabaseName` precisely so conventions §5's error mapping cannot drift, and a
+   spec that disagrees with the pin defeats that.
+   The same applies to `ix_student_attendances_submission_id`: F01d §5 declares it explicitly with a
+   `submission_id IS NOT NULL` filter, while the configuration relies on EF's convention index for
+   the foreign key. Functionally equivalent for F11's join; the spec should say which one is
+   intended.
+
+6. **`AttendanceSubmissionLog` has no retention policy and no erasure path.** Q-01 blocks F12 and the
    cutover, and O-20 leaves DEC-19's purge unassigned. F11 creates the *read* surface over a table
    nothing can ever delete from. Not F11's to fix; recorded because F11 is the feature that makes the
    table externally visible.

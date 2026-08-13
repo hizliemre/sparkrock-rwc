@@ -30,8 +30,11 @@ From **F01d**:
   `ResolvedAt`, `ResolvedBy`, `ResolutionSource`, `ResolutionReason`.
 - `IDbContext` exposes `DbSet<StudentAlert> StudentAlerts`.
 - `AlertType` and `ResolutionSource` are configured `HasConversion<string>()` with `MaxLength(32)`.
-- `ix_student_alerts_student_id_alert_type_school_year_start_school_id` is unique with filter
+- `ix_student_alerts_open_episode` is unique on
+  `(student_id, alert_type, school_year_start, school_id)` with filter
   `resolved_at IS NULL AND is_deleted = false`, and `ck_student_alerts_resolution_consistent` exists.
+  **Use the as-built name** — F01d's spec writes the long column-derived form, its configuration
+  ships `ix_student_alerts_open_episode`, and T10-08 asserts against a real database.
 - `ErrorCodes.Alert.cs` exists with `DuplicateOpenEpisode`.
 
 From **F01c**: `Student.SchoolId`, `School.AbsenceAlertThreshold` (`int?`), and the

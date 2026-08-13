@@ -111,23 +111,52 @@ public sealed class DeploymentGuardTests
     ///     The opt-in must never be inheritable from a committed file, or the guard degrades to the
     ///     environment check it exists to be stronger than.
     /// </summary>
+    /// <remarks>
+    ///     Scanning only <c>appsettings*.json</c> checked the least likely file. The natural place to
+    ///     put a flag that makes <c>dotnet run</c> work is <c>launchSettings.json</c>'s
+    ///     <c>environmentVariables</c> block — which is tracked, which every clone inherits, and which
+    ///     the narrow scan never looked at.
+    /// </remarks>
     [Fact]
-    public void NoCommittedAppSettingsFileContainsTheOptIn()
+    public void NoCommittedConfigurationFileContainsTheOptIn()
     {
-        DirectoryInfo repositoryRoot = new(AppContext.BaseDirectory);
-
-        while (repositoryRoot.Parent is not null && !Directory.Exists(Path.Combine(repositoryRoot.FullName, "src")))
-            repositoryRoot = repositoryRoot.Parent;
-
-        string[] settingsFiles = Directory.GetFiles(
-            Path.Combine(repositoryRoot.FullName, "src"), "appsettings*.json", SearchOption.AllDirectories);
-
-        Assert.NotEmpty(settingsFiles);
-
-        foreach (string file in settingsFiles.Where(f => !f.Contains("/bin/", StringComparison.Ordinal)
-                                                         && !f.Contains("/obj/", StringComparison.Ordinal)))
+        foreach (string file in RepositoryFiles.ConfigurationSources())
         {
-            Assert.DoesNotContain("AllowAnonymousStubIdentity", File.ReadAllText(file), StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "AllowAnonymousStubIdentity",
+                File.ReadAllText(file),
+                StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    /// <summary>
+    ///     A scan that silently matches nothing passes forever. These are the file kinds that reach the
+    ///     process environment, so each must actually be reached.
+    /// </summary>
+    [Theory]
+    [InlineData("appsettings.json")]
+    [InlineData("launchSettings.json")]
+    [InlineData(".props")]
+    public void TheOptInScanReachesEveryKindOfConfigurationFile(string expectedSuffix)
+    {
+        Assert.Contains(
+            RepositoryFiles.ConfigurationSources(),
+            file => file.EndsWith(expectedSuffix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    ///     Build output is excluded by <see cref="Path.DirectorySeparatorChar" />, not by a hardcoded
+    ///     forward slash, which excludes nothing on Windows.
+    /// </summary>
+    [Fact]
+    public void TheOptInScanExcludesBuildOutput()
+    {
+        string separator = Path.DirectorySeparatorChar.ToString();
+
+        Assert.All(RepositoryFiles.ConfigurationSources(), file =>
+        {
+            Assert.DoesNotContain($"{separator}bin{separator}", file, StringComparison.Ordinal);
+            Assert.DoesNotContain($"{separator}obj{separator}", file, StringComparison.Ordinal);
+        });
     }
 }

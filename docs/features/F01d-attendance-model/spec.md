@@ -328,10 +328,19 @@ The registry is F01a's artifact; design §5's shared-artifact table says "the fe
 | Constraint | SqlState | Maps to |
 |---|---|---|
 | `ix_student_attendances_student_id_attend_date` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
-| `ix_student_attendance_summaries_student_id_school_year_start` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
+| `ix_summaries_student_id_school_year_start` | 23505 | *already listed* — retryable, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
 | `ix_student_alerts_open_episode` | 23505 | 409 `ALERT.DUPLICATE_OPEN_EPISODE` |
-| `ix_attendance_submission_logs_school_id_idempotency_key` | 23505 | 409 `ATTENDANCE.DUPLICATE_SUBMISSION` |
+| `ix_submission_logs_school_id_idempotency_key` | 23505 | 409 `ATTENDANCE.DUPLICATE_SUBMISSION` |
 | `ix_student_attendances_legacy_id` | 23505 | 409 `IMPORT.DUPLICATE_LEGACY_ID` |
+
+> **Two names in this table were wrong until the registry was written.** The summary and
+> submission-log indexes are recorded above with their post-rename spellings; the table originally
+> carried `ix_student_attendance_summaries_…` and `ix_attendance_submission_logs_…`, which were
+> shortened when the alert-episode index was found to exceed Postgres's 63-character limit (VC-36).
+> Copied verbatim into the registry, both keys would have matched nothing — and a miss is silent, so
+> the violation would have surfaced as a raw `PostgresException` in a 500 rather than the mapped 409.
+> `Model/ConstraintRegistryTests` now asserts every registry key names an index the model actually
+> declares, which is what makes the next rename fail loudly instead.
 
 `IMPORT.DUPLICATE_LEGACY_ID` never reaches HTTP — F12 is a console tool (DEC-17) and catches it to write a `DUPLICATE_STUDENT_DATE` anomaly. It gets a code because the translation lives in the `SaveChangesAsync` override and applies to every caller; an unmapped constraint is rethrown raw (DEC-14 mechanism 3), and a raw `PostgresException` escaping to a console log is worse than a mapped one.
 

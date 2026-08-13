@@ -18,7 +18,7 @@ internal static class ProblemDetailsDefaults
     public const string TypeUriPrefix = "https://sparkrock.example/errors/";
 
     /// <summary>
-    ///     Fills in what is missing, and never overwrites what a handler already set.
+    ///     Fills in what is missing, and never overwrites a usable code a handler already set.
     /// </summary>
     /// <remarks>
     ///     Set-if-absent matters: this runs on <em>every</em> ProblemDetails write, including those a
@@ -34,14 +34,19 @@ internal static class ProblemDetailsDefaults
         context.ProblemDetails.Extensions["traceId"] =
             Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
 
-        if (!context.ProblemDetails.Extensions.TryGetValue("errorCode", out object? existing)
-            || existing is null)
-        {
-            context.ProblemDetails.Extensions["errorCode"] = DefaultErrorCodeFor(status);
-        }
+        // Set-if-absent, but "present" means a usable code. Anything else — a null, a non-string, a
+        // blank — is normalised to the status default rather than left on the wire, because the
+        // client branches on this member and cannot branch on 42. Pattern-matched rather than cast:
+        // a hard cast here throws a second exception inside error handling, where there is no handler
+        // left to catch it and the original failure is lost with it.
+        string errorCode =
+            context.ProblemDetails.Extensions.TryGetValue("errorCode", out object? existing)
+            && existing is string declared
+            && !string.IsNullOrWhiteSpace(declared)
+                ? declared
+                : DefaultErrorCodeFor(status);
 
-        string errorCode = context.ProblemDetails.Extensions["errorCode"] as string
-                           ?? DefaultErrorCodeFor(status);
+        context.ProblemDetails.Extensions["errorCode"] = errorCode;
 
         // Assigned unconditionally, not with ??=. DefaultProblemDetailsWriter runs the framework's
         // own defaults before this callback, so Type and Title are already populated with RFC links

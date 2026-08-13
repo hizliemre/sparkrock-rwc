@@ -16,24 +16,25 @@ builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// CORS for external API clients (Scalar's hosted client fetches the OpenAPI document cross-origin)
-if (builder.Environment.IsDevelopment())
-{
-    builder.Services.AddCors(options => options.AddPolicy("Development", policy =>
-        policy
-            .SetIsOriginAllowed(_ => true)
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials()));
-}
-
 WebApplication app = builder.Build();
+
+// Transport before anything reads the request. HSTS only outside Development: the header is cached
+// by the browser per host, and localhost is a host, so issuing it in Development pins every other
+// http://localhost project the developer runs to HTTPS for the max-age.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 
 app.UseApiErrorHandling();
 
+// One policy, an explicit origin list, no credentials — see ServiceExtensions.AddCors. The list is
+// empty unless configured, so this is inert by default rather than off by default.
+app.UseCors(api.ServiceExtensions.CorsPolicyName);
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseCors("Development");
     app.UseSwagger();
     app.MapScalarApiReference(options =>
     {

@@ -38,7 +38,7 @@ actually consumes, and from whom:
 |---|---|---|
 | **F01d** | `StudentAlert` + `student_alerts` + `DbSet<StudentAlert>` on `IDbContext` | everything |
 | **F01d** | `AlertType` enum, `ResolutionSource` mapped as `varchar(32)` strings | `alertType` and `resolutionSource` on the wire |
-| **F01d** | `ix_student_alerts_…` unique, filtered `resolved_at IS NULL AND is_deleted = false` | T10-08's re-raise assertion |
+| **F01d** | `ix_student_alerts_open_episode`, unique, filtered `resolved_at IS NULL AND is_deleted = false` | T10-08's re-raise assertion |
 | **F01d** | `ck_student_alerts_resolution_consistent` | the two-state invariant §6 relies on |
 | **F01c** | `Student` with `SchoolId`, `School` with `AbsenceAlertThreshold` nullable | the join that supplies scope and `currentThreshold` |
 | **F01b** | `AbsenceRules.DefaultThreshold`, `ResolutionSource` | the drift comparison and the `Manual` value |
@@ -100,9 +100,11 @@ Accepted, documented in the spec, and re-raisable at F01d if the business finds 
 window is a single round trip on a two-user action, which is why it is not being escalated.
 
 **R-2 — the list's driving index does not exist.** Spec §3: the predicate is
-`students.school_id = @p`, joined to alerts. `ix_student_alerts_school_id_school_year_start` does not
-serve it, and `ix_student_alerts_student_id_school_year_start` serves the join but not the school
-filter. The plan is `students` filtered by `Student (SchoolId, IsActive)` (design §3), then a nested
+`students.school_id = @p`, joined to alerts. As merged, `student_alerts` carries only
+`ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start` — the latter
+serves the join but not the school filter, and F01d's spec'd
+`ix_student_alerts_school_id_school_year_start` was never shipped (spec, conflict 4). The plan is
+`students` filtered by `Student (SchoolId, IsActive)` (design §3), then a nested
 loop into `student_alerts` on `student_id`. That is fine at any plausible per-school alert volume,
 and Q-03 (data volumes) is unanswered, so a number cannot be put on it. F10 therefore makes **no**
 `EXPLAIN` claim — unlike V-12/F08, which does. If the join proves expensive the repair is an index on

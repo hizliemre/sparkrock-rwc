@@ -1,11 +1,10 @@
-using api.Errors;
 using domain.Exceptions;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
-namespace api;
+namespace api.Errors;
 
 /// <summary>
 ///     Turns a FluentValidation failure into the shared error envelope.
@@ -16,6 +15,13 @@ namespace api;
 ///     serialises its errors as a JSON <em>object</em> at the same pointer the envelope uses for an
 ///     <em>array</em>, so mixing the two would put two shapes behind one key — worse than the
 ///     original defect, which was merely that the error code never reached the client at all.
+///     <para>
+///         Two things about a violation are not the validator's to state. <c>source</c> is inferred
+///         from the request by <see cref="ViolationSource" />, because a validator knows the property
+///         name and nothing about where it was bound from; and <c>message</c> passes through
+///         <see cref="ViolationMessage" />, because FluentValidation's built-in messages interpolate
+///         <c>{PropertyValue}</c> and conventions §2 forbids free text in a response body.
+///     </para>
 /// </remarks>
 internal sealed class ValidationExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
@@ -24,16 +30,19 @@ internal sealed class ValidationExceptionHandler(IProblemDetailsService problemD
         Exception exception,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
         if (exception is not ValidationException validationException)
             return false;
 
         List<object> violations = validationException.Errors
             .Select(failure => (object)new
             {
-                source = "body",
+                source = ViolationSource.For(httpContext.Request, failure.PropertyName),
                 path = ViolationPath.ToCamelCase(failure.PropertyName),
                 code = CodeFor(failure),
-                message = failure.ErrorMessage
+                message = ViolationMessage.Sanitise(
+                    failure.ErrorMessage, failure.PropertyName, failure.AttemptedValue)
             })
             .ToList();
 
@@ -49,7 +58,7 @@ internal sealed class ValidationExceptionHandler(IProblemDetailsService problemD
             }
         };
 
-        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        return await ProblemDetailsEnvelope.WriteAsync(problemDetailsService, new ProblemDetailsContext
         {
             HttpContext = httpContext,
             ProblemDetails = problemDetails,

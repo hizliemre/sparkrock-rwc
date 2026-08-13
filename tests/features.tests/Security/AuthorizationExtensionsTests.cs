@@ -46,12 +46,21 @@ public sealed class WhereAuthorizedTests
         Assert.Empty(result);
     }
 
+    /// <summary>
+    ///     The short-circuit ignores the scope rather than widening it. An administrator who also
+    ///     carries a school list still sees every row — otherwise the scope would silently narrow an
+    ///     identity that is supposed to be unrestricted, and the narrowing would be invisible until
+    ///     someone assigned a school to an admin account.
+    /// </summary>
     [Fact]
-    public void WhereAuthorized_WhenSystemAdminWithEmptyScope_StillReturnsEveryRow()
+    public void WhereAuthorized_WhenSystemAdminIsAlsoScopedToOneSchool_StillReturnsEveryRow()
     {
-        List<ScopedRow> result = Rows().WhereAuthorized(FakeCurrentUser.SystemAdmin()).ToList();
+        FakeCurrentUser scopedAdmin = new() { IsSystemAdmin = true, AuthorizedSchoolIds = [SchoolA] };
+
+        List<ScopedRow> result = Rows().WhereAuthorized(scopedAdmin).ToList();
 
         Assert.Equal(3, result.Count);
+        Assert.Contains(result, row => row.SchoolId == SchoolB);
     }
 }
 
@@ -86,12 +95,7 @@ public sealed class EnsureAuthorizedTests
         Assert.Equal(NotFoundException.NotFoundMessage, error.Message);
     }
 
-    [Fact]
-    public void EnsureAuthorized_WhenOutOfScope_DoesNotThrowForbidden()
-    {
-        Exception error = Record.Exception(
-            () => FakeCurrentUser.ScopedTo(SchoolA).EnsureAuthorized(SchoolB, "SCHOOL.NOT_FOUND"));
-
-        Assert.IsNotType<ForbiddenException>(error);
-    }
+    // Deliberately no "does not throw ForbiddenException" test. xUnit's Assert.Throws is exact-type,
+    // so the assertion above already fails if the type changes; a second test asserting the negative
+    // cannot fail independently of it and only reads as extra coverage.
 }

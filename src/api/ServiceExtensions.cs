@@ -1,6 +1,7 @@
 using api.Errors;
 using domain.Security;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using service.defaults;
 
@@ -8,6 +9,18 @@ namespace api;
 
 public static class ServiceExtensions
 {
+    /// <summary>The single CORS policy. There is no second one, and no per-environment variant.</summary>
+    public const string CorsPolicyName = "SparkrockRwc";
+
+    /// <summary>
+    ///     Configuration key holding the origins permitted to call the API cross-origin.
+    /// </summary>
+    /// <remarks>
+    ///     A string array, absent from every committed file. Absent means no cross-origin caller is
+    ///     permitted, which is the correct default for an API whose only UI is served same-origin.
+    /// </remarks>
+    public const string AllowedOriginsKey = "Cors:AllowedOrigins";
+
     /// <summary>
     ///     Registers the HTTP edge: the acting identity, the error envelope and the exception handlers.
     /// </summary>
@@ -25,7 +38,12 @@ public static class ServiceExtensions
         IServiceCollection services = builder.Services;
 
         services.AddScoped<ICurrentUser, StubCurrentUser>();
-        services.AddScoped<IAuditOverride, AuditOverride>();
+
+        // Not the real one. Begin() forges audit attribution and suppresses CreatedAt stamping, and
+        // it is public on a public interface — see NullAuditOverride.
+        services.AddScoped<IAuditOverride, NullAuditOverride>();
+
+        AddCors(builder);
 
         services.AddProblemDetails(options => options.CustomizeProblemDetails = ProblemDetailsDefaults.Customize);
 
@@ -53,5 +71,36 @@ public static class ServiceExtensions
         app.UseStatusCodePages();
 
         return app;
+    }
+
+    /// <summary>
+    ///     One policy, an explicit origin list, and no credentials.
+    /// </summary>
+    /// <remarks>
+    ///     The previous policy reflected any origin (<c>SetIsOriginAllowed(_ => true)</c>) and paired
+    ///     it with <c>AllowCredentials</c> — the one combination that is always unsafe, because the
+    ///     browser then treats every page the developer happens to visit as entitled to make
+    ///     credentialed calls and read the responses. With no authentication yet, the same-origin
+    ///     policy is the <em>only</em> thing keeping a random page away from every school's roster, and
+    ///     that policy was the thing being switched off. Scalar is served same-origin at
+    ///     <c>/scalar/v1</c> and never needed any of it.
+    ///     <para>
+    ///         Registered in every environment with an empty list by default: a policy that allows
+    ///         nothing is inert, whereas a Development-only policy invites the wildcard back the first
+    ///         time someone needs a cross-origin caller in a shared environment. Credentials are not
+    ///         configurable — an allowlist plus credentials is a decision to be taken alongside real
+    ///         authentication, not inherited from a scaffold.
+    ///     </para>
+    /// </remarks>
+    private static void AddCors(ISparkrockRwcBuilder builder)
+    {
+        string[] origins = builder.Configuration.GetSection(AllowedOriginsKey).Get<string[]>() ?? [];
+
+        builder.Services.AddCors(options => options.AddPolicy(
+            CorsPolicyName,
+            policy => policy
+                .WithOrigins(origins)
+                .AllowAnyMethod()
+                .AllowAnyHeader()));
     }
 }

@@ -1,3 +1,4 @@
+using infra.persistence.postgre.ErrorTranslation;
 using infra.persistence.postgre.Interceptors;
 using infra.persistence.sql;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,12 @@ public static class ServiceExtensions
 
         // TimeProvider is not auto-registered; without this the first save fails at DI resolution.
         services.TryAddSingleton(TimeProvider.System);
+
+        // Immutable and keyed on constant strings, so a singleton. Registering it is what makes the
+        // translator do anything at all: SparkrockRwcDbContext falls back to ConstraintErrorRegistry
+        // .Empty, under which every unique violation is rethrown raw as a 500.
+        services.TryAddSingleton<IConstraintErrorRegistry>(
+            new ConstraintErrorRegistry(SchemaConstraintErrors.Mappings));
 
         // Scoped, not singleton: it consumes a scoped ICurrentUser, and a singleton would capture
         // the first request's identity for the lifetime of the process.

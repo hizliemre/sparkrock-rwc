@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 
 namespace api.Errors;
 
@@ -9,44 +10,60 @@ namespace api.Errors;
 ///     Handlers emit CLR-cased paths such as <c>Entries[3].AttendCode</c>; clients receive
 ///     <c>entries[3].attendCode</c>, matching the payload they sent.
 ///     <para>
-///         This cannot be delegated to a JSON naming policy. That policy lowercases only the first
-///         character of a whole key and never touches string <em>values</em> — and once the path is a
-///         string inside a violation object, it is a value. So the transform runs here, once, where
-///         the violation is built.
+///         The transform runs here rather than in the serializer because a JSON naming policy renames
+///         <em>keys</em> and never touches string <em>values</em> — and once the path is a string
+///         inside a violation object, it is a value.
+///     </para>
+///     <para>
+///         What it must not do is invent its own casing rule. Lowering only the first character gives
+///         <c>iDNumber</c> for <c>IDNumber</c>, while the serializer writes the property itself as
+///         <c>idNumber</c>: the path then points at a key that does not exist in the payload, which is
+///         worse than no path at all. So each segment's identifier is handed to the same
+///         <see cref="JsonNamingPolicy.CamelCase" /> instance the response serializer uses, and only
+///         the <c>[n]</c> indexer suffix is carried across untouched.
 ///     </para>
 /// </remarks>
 internal static class ViolationPath
 {
-    public static string ToCamelCase(string clrPath)
+    public static string ToCamelCase(string? clrPath)
     {
+        // A null path would serialise as "path": null, which is not a member of the contract.
         if (string.IsNullOrEmpty(clrPath))
-            return clrPath;
+            return string.Empty;
 
         StringBuilder result = new(clrPath.Length);
-        bool atSegmentStart = true;
+        bool first = true;
 
-        foreach (char character in clrPath)
+        foreach (string segment in clrPath.Split('.'))
         {
-            if (character is '.')
-            {
-                atSegmentStart = true;
-                result.Append(character);
-                continue;
-            }
+            if (!first)
+                result.Append('.');
 
-            // An indexer closes a segment; the next character after it is not a new segment start,
-            // so "Entries[3].AttendCode" lowers E and A but leaves the 3 alone.
-            if (character is '[' or ']')
-            {
-                atSegmentStart = false;
-                result.Append(character);
-                continue;
-            }
-
-            result.Append(atSegmentStart ? char.ToLowerInvariant(character) : character);
-            atSegmentStart = false;
+            first = false;
+            AppendSegment(result, segment);
         }
 
         return result.ToString();
+    }
+
+    /// <summary>
+    ///     Camel-cases the identifier and copies any <c>[n]</c> suffix verbatim.
+    /// </summary>
+    /// <remarks>
+    ///     Split on the first <c>[</c> rather than passing the whole segment to the policy: the policy
+    ///     is defined over identifiers, and an index is not one. <c>Entries[3]</c> keeps its 3.
+    /// </remarks>
+    private static void AppendSegment(StringBuilder result, string segment)
+    {
+        int bracket = segment.IndexOf('[', StringComparison.Ordinal);
+
+        if (bracket < 0)
+        {
+            result.Append(JsonNamingPolicy.CamelCase.ConvertName(segment));
+            return;
+        }
+
+        result.Append(JsonNamingPolicy.CamelCase.ConvertName(segment[..bracket]));
+        result.Append(segment[bracket..]);
     }
 }

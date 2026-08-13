@@ -104,8 +104,8 @@ namespace infra.persistence.postgre.Migrations
                     b.HasKey("Id")
                         .HasName("pk_student_alerts");
 
-                    b.HasIndex("SchoolId")
-                        .HasDatabaseName("ix_student_alerts_school_id");
+                    b.HasIndex("SchoolId", "SchoolYearStart")
+                        .HasDatabaseName("ix_student_alerts_school_id_school_year_start");
 
                     b.HasIndex("StudentId", "SchoolYearStart")
                         .HasDatabaseName("ix_student_alerts_student_id_school_year_start");

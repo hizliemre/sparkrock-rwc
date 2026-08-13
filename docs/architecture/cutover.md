@@ -1,6 +1,6 @@
 # Cutover runbook
 
-The divergence log is written as a cutover-gated artifact — twenty-six entries, eight requiring named business acceptance. This document is the gate.
+The divergence log is written as a cutover-gated artifact — thirty entries, twelve requiring named business acceptance. This document is the gate. The numbers are counted from [legacy-analysis.md §4](legacy-analysis.md), which states both; if they disagree, the log is right and this line is stale.
 
 **Nothing here can run until [`design.md` §6](design.md) open questions Q-01 through Q-05 are answered.** They are business inputs, not engineering defaults.
 
@@ -10,7 +10,7 @@ The divergence log is written as a cutover-gated artifact — twenty-six entries
 
 | # | Precondition | Owner | Evidence |
 |---|---|---|---|
-| P-1 | All eight ● divergences signed off by name and date in [legacy-analysis.md §4](legacy-analysis.md) | business | signed rows |
+| P-1 | All twelve ● divergences signed off by name and date in [legacy-analysis.md §4](legacy-analysis.md) — the gate is "every row whose `#` cell carries a ●", not a number this document remembers | business | signed rows |
 | P-2 | Q-01 (retention), Q-02 (legacy timezone), Q-03 (volumes), Q-05 (disclosure scope) answered | business | design.md §6 |
 | P-3 | Read-only SQL Server login provisioned, limited to `db_datareader` on the five source tables | infra | connection test |
 | P-4 | Legacy connection string in a secret store; absent from every tracked file | infra | secret scan |

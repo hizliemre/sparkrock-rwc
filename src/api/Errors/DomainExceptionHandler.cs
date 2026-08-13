@@ -16,6 +16,11 @@ namespace api.Errors;
 ///         <c>violations</c> appears only for per-item failures. On 403, 404 and 409 there is no item
 ///         to point at, and an empty array would imply otherwise.
 ///     </para>
+///     <para>
+///         The write goes through <see cref="ProblemDetailsEnvelope" />, never
+///         <c>TryWriteAsync</c> directly: a declined content negotiation must still be reported as
+///         handled, or the developer exception page serves the stack trace instead.
+///     </para>
 /// </remarks>
 internal sealed class DomainExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
@@ -24,6 +29,8 @@ internal sealed class DomainExceptionHandler(IProblemDetailsService problemDetai
         Exception exception,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(httpContext);
+
         (int status, string errorCode, string? detail, List<object>? violations) = exception switch
         {
             BusinessRuleException business => (
@@ -57,14 +64,18 @@ internal sealed class DomainExceptionHandler(IProblemDetailsService problemDetai
         ProblemDetails problemDetails = new()
         {
             Status = status,
-            Detail = detail,
+            // ForbiddenException and ConflictException take an arbitrary message and it lands here
+            // verbatim, so Detail is a free-text channel too. There is no property path to key the
+            // field-name rule on, so only the length cap applies — enough to stop an interpolated
+            // Notes column, not enough to make the channel safe. Recorded as O-46.
+            Detail = detail is null ? null : ViolationMessage.Sanitise(detail, clrPath: null, attemptedValue: null),
             Extensions = { ["errorCode"] = errorCode }
         };
 
         if (violations is not null)
             problemDetails.Extensions["violations"] = violations;
 
-        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        return await ProblemDetailsEnvelope.WriteAsync(problemDetailsService, new ProblemDetailsContext
         {
             HttpContext = httpContext,
             ProblemDetails = problemDetails,
@@ -72,6 +83,17 @@ internal sealed class DomainExceptionHandler(IProblemDetailsService problemDetai
         });
     }
 
+    /// <summary>
+    ///     Projects domain violations onto the wire shape.
+    /// </summary>
+    /// <remarks>
+    ///     <c>Source</c> comes from the handler here rather than being inferred: a
+    ///     <see cref="BusinessRuleException" /> is raised about a payload the handler has already
+    ///     parsed, so it knows where each item came from. Messages still pass through
+    ///     <see cref="ViolationMessage" /> — nothing stops a handler interpolating the value it
+    ///     rejected, and conventions §2 forbids free text in a response body regardless of who wrote
+    ///     the string.
+    /// </remarks>
     private static List<object> ToViolations(IReadOnlyList<Violation> violations) =>
         violations
             .Select(violation => (object)new
@@ -79,7 +101,7 @@ internal sealed class DomainExceptionHandler(IProblemDetailsService problemDetai
                 source = violation.Source,
                 path = ViolationPath.ToCamelCase(violation.Path),
                 code = violation.Code,
-                message = violation.Message
+                message = ViolationMessage.Sanitise(violation.Message, violation.Path, attemptedValue: null)
             })
             .ToList();
 }

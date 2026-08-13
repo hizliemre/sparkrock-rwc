@@ -62,7 +62,7 @@ Manual discipline drifts within weeks, so these run as a test rather than a chec
 2. Every `depends-on` matches design.md §5 exactly
 3. No dangling or duplicate ids; ids are never renumbered or reused
 4. Every `ErrorCodes` constant traces to a spec
-5. Every divergence entry names a fully-qualified test that exists — a description is not a test name
+5. Every divergence entry of `Evidence-kind: test` names a fully-qualified test that exists — a description is not a test name. Rows of another kind name the artifact their kind implies; only `none` may hold `—`
 6. Every documented endpoint path matches a path in `EndpointDataSource`
 
 If implementation contradicts a decision, amend it with a superseding `DEC-xx` and mark the old one `Superseded-by`. A spec never silently diverges from architecture.

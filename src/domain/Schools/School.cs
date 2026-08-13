@@ -11,7 +11,7 @@ namespace domain.Schools;
 ///     stops deactivating a school making its students vanish from every projection that joins
 ///     through it.
 /// </remarks>
-public sealed class School : BaseEntity, ILegacyEntity
+public sealed class School : BaseEntity, ILegacyEntity, IActivatable
 {
     public required string Name { get; set; }
 

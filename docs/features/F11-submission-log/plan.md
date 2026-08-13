@@ -38,7 +38,7 @@ F11's only design.md §5 edge is F01d. What it actually consumes:
 | From | Artifact | Needed for |
 |---|---|---|
 | **F01d** | `AttendanceSubmissionLog` + `DbSet<…>` on `IDbContext` | everything |
-| **F01d** | `ix_attendance_submission_logs_school_id_submitted_at_id` on `(school_id, submitted_at, id)`, ascending, unfiltered | the keyset scan and T11-09's `EXPLAIN` |
+| **F01d** | `ix_submission_logs_school_id_submitted_at_id` on `(school_id, submitted_at, id)`, ascending, unfiltered | the keyset scan and T11-09's `EXPLAIN` |
 | **F01d** | `StudentAttendance.SubmissionId` + `ix_student_attendances_submission_id` | the detail route's `entries` |
 | **F01d** | `SubmittedAt` as a real `timestamptz` column | a sort key that is not `created_at` |
 | **F01c** | `Student` with `FirstName` / `LastName` | the entries projection |

@@ -56,5 +56,16 @@ internal sealed class StudentAlertConfiguration : IEntityTypeConfiguration<Stude
 
         builder.HasIndex(e => new { e.StudentId, e.SchoolYearStart })
             .HasDatabaseName("ix_student_alerts_student_id_school_year_start");
+
+        // The school-wide worklist: "who in this school is flagged this year". Specified by F01d and
+        // omitted from the first cut of this configuration -- F10's alert list and F12's
+        // reconciliation report are both keyed exactly this way, and without it each of them
+        // sequential-scans the alert table.
+        //
+        // Unfiltered on purpose, unlike the episode index above. A partial index conditioned on
+        // is_deleted would be unusable to the importer and to any audit path that reads past the
+        // soft-delete filter, and the planner can use the plain form for both.
+        builder.HasIndex(e => new { e.SchoolId, e.SchoolYearStart })
+            .HasDatabaseName("ix_student_alerts_school_id_school_year_start");
     }
 }

@@ -266,9 +266,9 @@ This is a **net regression in audit fidelity** until authentication exists — s
 
 **Count:** keyed `(StudentId, SchoolYearStart)`, counting across the school year regardless of school (V-07c).
 
-**Threshold:** legacy sources `AbsenceAlertThreshold` by joining `Schools` on `StudentAttendanceSummary.SchoolID`, a `NOT NULL` column (`schema.sql:41`, get:39–43). `SchoolId` is therefore **retained** on the summary as school of record (V-17).
+**Threshold:** legacy sources `AbsenceAlertThreshold` by joining `Schools` on `StudentAttendanceSummary.SchoolID`, a `NOT NULL` column (`schema.sql:41`, get:39–43). `SchoolId` is **retained** on the summary as school of record — but for filtering only. The governing threshold comes from the student's current school (DEC-16), which is the divergence V-17 now records.
 
-**Unresolved and escalated:** which school governs after a transfer, whether the alert follows the student, and what the former school retains, are a single question with cross-tenant consequences. See DEC-16 in the design.
+**Resolved in DEC-16:** which school governs after a transfer, whether the alert follows the student, and what the former school retains, are a single question with cross-tenant consequences, decided together in the design. The access half is logged as V-28.
 
 ### D-06 — Roster query contract
 
@@ -292,43 +292,44 @@ Because omitted students are untouched, **only submitted students' totals can ch
 
 ## 4. Divergence log
 
-Behaviours that intentionally differ from legacy. **26 entries.**
+Behaviours that intentionally differ from legacy. **30 entries, 12 of them ●.**
 
-**Status:** `proposed` → `implemented` → `verified`. **●** marks entries changing user-visible school operations, requiring named business acceptance before cutover — engineering review is not sufficient.
+**Status:** `proposed` → `implemented` → `verified`. **●** marks entries changing user-visible school operations, requiring named business acceptance before cutover — engineering review is not sufficient. The marker lives in the `#` column and nowhere else; `Signed off` carries the signature, or `—` until one exists.
 
-`Verified by` must name a fully-qualified test once implemented; `—` is legitimate only where the reason column says why no test can exist.
+**`Evidence-kind`** names the *mechanism* that proves the row, from a closed set — `test`, `analyzer`, `migration-inspection`, `report`, `none` — optionally qualified with the tier (`test (integration)`) where only that tier can carry the assertion. `Verified by` then names the *instance*: for `test`, a fully-qualified test name once implemented and `*pending*` until then; for every other kind, the artifact itself. `—` is legitimate only on kind `none`, whose `New behaviour` cell must say why nothing can verify it. The ⚙ cross-reference check ([features/README](../features/README.md)) applies its test-name rule to `test` rows only — before the column existed, a prose description sat where a mechanism belonged and the check would have failed on every one of them (O-33).
 
-| # | Fixes | Legacy behaviour | New behaviour | Feature | Verified by | Reversible | Status | Signed off |
-|---|---|---|---|---|---|---|---|---|
-| V-01 | L-01 | Stale `@ExistingID` overwrites another student's row | Each student resolved independently | F07 | *pending* | n/a | proposed | — |
-| V-02 | L-02 | Stale absence flags leak between students | Flags resolved per record | F07 | *pending* | n/a | proposed | — |
-| V-03 | L-03, L-13 | Procedure uncreatable; no transaction | Entire submission in one transaction | F07 | *pending* | n/a | proposed | — |
-| V-04 ● | L-06 | Unrecognised code stored as present | Submission rejected | F07 | *pending* | config toggle | proposed | — |
-| V-05 | L-04 | XML payload interpolated into SQL | JSON request model; banned-API analyzer forbids raw SQL in `features` | F07, F01a2 | analyzer | no | proposed | — |
-| V-06 ● | L-05 | Dedup key `(StudentID, AttendDate)`; recount filtered by school | Key deliberately unchanged — one record per student per day. The school disagreement is resolved by validating membership, not by widening the key | F07 | *pending* | no | proposed | — |
-| V-07a | L-08 | Per-student recount in cursor | One grouped recount for submitted students | F07 | perf only, no behaviour change | n/a | proposed | n/a |
-| V-07b | L-12 | Recount predicate filters nothing | Recount scoped to the school year by date range | F07 | *pending* | no | proposed | — |
-| V-07c ● | D-05 | Recount filtered to one school | Recount spans schools within the year | F07 | *pending* | no | proposed | — |
-| V-08 ● | L-07 | Alerts never resolve | Manual resolve + auto-resolve strictly below threshold; a manual resolution is never auto-re-raised (DEC-18) | F01b, F10 | `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse` | yes | implemented | — |
-| V-09 | L-10 | School-year rule written three times | Single value object | F01b | `SchoolYearFromLocalDateTests.FromLocalDate_WhenSeptemberFirst_StartsNewYear`, `…_WhenAugustThirtyFirst_StaysInPreviousYear` | n/a | **verified** | n/a |
-| V-10 | L-11 | No foreign keys, no non-key indexes | Foreign keys plus indexes on every lookup path | F01c, F01d | migration inspection | no | proposed | n/a |
-| V-11 | — | No delete path of any kind exists | Soft delete on transactional records only | F01a | `SoftDeleteFilterTests.Model_AppliesQueryFilterToSoftDeletableEntitiesOnly` | no | **verified** | n/a |
-| V-12 | L-09 | Non-sargable `CASE` in `WHERE` | Half-open date-range predicate | F08 | `EXPLAIN` assertion, integration tier | n/a | proposed | n/a |
-| V-13 ● | — | The *procedure* accepted back-dated entry for a former school; the *form* could not back-date at all (L-16) | Rejected — membership is current-school only | F07 | *pending* | no | proposed | — |
-| V-14 ● | — | Inactive codes and inactive schools accepted | Rejected | F07 | *pending* | config toggle | proposed | — |
-| V-15 | — | Duplicate student in one payload upserts twice | Rejected | F07 | *pending* | no | proposed | n/a |
-| V-16 ● | D-04 | `SYSTEM_USER` per database login | Constant stub identity until auth exists — **less** attribution than legacy | F01a | no test possible; verified by inspection | yes | **accepted-with-risk** | — |
-| V-17 | D-05 | Threshold via `summary.SchoolID → Schools` | Same; `SchoolId` retained as school of record | F09 | *pending* | no | proposed | n/a |
-| V-18 | L-12, L-01 | Summaries and alerts stored | Recomputed from attendance, never imported | F12 | reconciliation report (§5) | no | proposed | — |
-| V-19 | D-03 | Overlapping terms resolve arbitrarily | Overlaps rejected at write | F04 | *pending* | no | proposed | n/a |
-| V-20 | D-08 | Whole grid always submitted | Partial upsert; omitted students untouched | F07 | *pending* | no | proposed | — |
-| V-21 | — | `LastUpdated`/`AlertDate` `NOT NULL DEFAULT GETDATE()` | `ModifiedAt` null on insert; projections use `ModifiedAt ?? CreatedAt` as a global convention | F01a | `GetTestEntitiesHandlerTests.Handle_WhenNeverModified_ProjectsLastUpdatedFromCreatedAt`, `…_WhenModified_ProjectsLastUpdatedFromModifiedAt` | n/a | **verified** | n/a |
-| V-22 | — | `ResolvedBy VARCHAR(100)` | `Guid?` plus `LegacyResolvedBy` | F10 | column-type inspection | no | proposed | n/a |
-| V-23 | D-02 | Code description joined at read time | Description snapshotted onto the attendance row; redefining a description no longer changes historical display | F01d | *pending* | no | proposed | ● |
-| V-24 | L-15 | Grade filter silently inert; empty grade always passed | `?grade=` is an explicit optional filter | F06 | *pending* | no | proposed | n/a |
-| V-25 | L-16 | Date fixed at form load; no back-dating | Date is an explicit request parameter, bounded (not future, within a configured back-dating window) | F07 | *pending* | config toggle | proposed | ● |
-| V-27 ● | — | SQL Server's case-insensitive collation treated `A` and `a` as the same attendance code | Postgres unique indexes are case-sensitive, so both could coexist. A check constraint forces uppercase, making the codes behave as before | F01c, F03 | `MigrationDdlTests.Migration_DeclaresCheckConstraintWithItsPinnedNameAndPredicate` | no | **implemented** | — |
-| V-26 | L-10 | Threshold default `10` written twice | Single `domain` constant used by both F07 and F09 | F01b | `AbsenceRulesTests.ResolveThreshold_WhenSchoolThresholdNull_ReturnsDefaultOfTen` | n/a | **verified** | n/a |
+| # | Fixes | Legacy behaviour | New behaviour | Feature | Evidence-kind | Verified by | Reversible | Status | Signed off |
+|---|---|---|---|---|---|---|---|---|---|
+| V-01 | L-01 | Stale `@ExistingID` overwrites another student's row | Each student resolved independently | F07 | test | *pending* | n/a | proposed | — |
+| V-02 | L-02 | Stale absence flags leak between students | Flags resolved per record | F07 | test | *pending* | n/a | proposed | — |
+| V-03 | L-03, L-13 | Procedure uncreatable; no transaction | Entire submission in one transaction | F07 | test (integration) | *pending* | n/a | proposed | — |
+| V-04 ● | L-06 | Unrecognised code stored as present | Submission rejected | F07 | test | *pending* | config toggle | proposed | — |
+| V-05 | L-04 | XML payload interpolated into SQL | JSON request model; banned-API analyzer forbids raw SQL in `features` | F07, F01a2 | analyzer | `src/features/BannedSymbols.txt` — the `FromSql*` / `ExecuteSql*` entries | no | proposed | — |
+| V-06 ● | L-05 | Dedup key `(StudentID, AttendDate)`; recount filtered by school | Key deliberately unchanged — one record per student per day. The school disagreement is resolved by validating membership, not by widening the key | F07 | test (integration) | *pending* | no | proposed | — |
+| V-07a | L-08 | Per-student recount in cursor | One grouped recount for submitted students — a performance change with no behavioural difference | F07 | test (integration) | *pending* | n/a | proposed | n/a |
+| V-07b | L-12 | Recount predicate filters nothing | Recount scoped to the school year by date range | F07 | test | *pending* | no | proposed | — |
+| V-07c ● | D-05 | Recount filtered to one school | Recount spans schools within the year | F07 | test | *pending* | no | proposed | — |
+| V-08 ● | L-07 | Alerts never resolve | Manual resolve + auto-resolve strictly below threshold; a manual resolution is never auto-re-raised (DEC-18) | F01b, F07, F10 | test | `AlertRulesRaiseTests.ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse` | yes | implemented | — |
+| V-09 | L-10 | School-year rule written three times | Single value object | F01b | test | `SchoolYearFromLocalDateTests.FromLocalDate_WhenSeptemberFirst_StartsNewYear`, `…_WhenAugustThirtyFirst_StaysInPreviousYear` | n/a | **verified** | n/a |
+| V-10 | L-11 | No foreign keys, no non-key indexes | Foreign keys plus indexes on every lookup path | F01c, F01d | migration-inspection | applied DDL of migrations 1 and 2 | no | proposed | n/a |
+| V-11 | — | No delete path of any kind exists | Soft delete on transactional records only | F01a | test | `SoftDeleteFilterTests.Model_AppliesQueryFilterToSoftDeletableEntitiesOnly` | no | **verified** | n/a |
+| V-12 | L-09 | Non-sargable `CASE` in `WHERE` | Half-open date-range predicate | F08 | test (integration) | *pending* — an `EXPLAIN` assertion over the handler's own query | n/a | proposed | n/a |
+| V-13 ● | — | The *procedure* accepted back-dated entry for a former school; the *form* could not back-date at all (L-16) | Rejected — membership is current-school only | F07 | test | *pending* | no | proposed | — |
+| V-14 ● | — | Inactive codes and inactive schools accepted | Rejected | F07 | test | *pending* | config toggle | proposed | — |
+| V-15 | — | Duplicate student in one payload upserts twice | Rejected | F07 | test | *pending* | no | proposed | n/a |
+| V-16 ● | D-04 | `SYSTEM_USER` per database login | Constant stub identity until auth exists — **less** attribution than legacy. No mechanism can verify attribution the system does not yet produce | F01a | none | — | yes | **accepted-with-risk** | — |
+| V-17 ● | D-05 | Threshold via `summary.SchoolID → Schools` | Threshold resolved from the student's **current** school (`Student.SchoolId`), per DEC-16. The summary's `SchoolId` is retained as school of record, for filtering only — it no longer governs the threshold, so after a transfer the receiving school's threshold decides whether the student is chronic | F09 | test | *pending* | no | proposed | — |
+| V-18 | L-12, L-01 | Summaries and alerts stored | Recomputed from attendance, never imported | F12 | report | reconciliation report ([cutover §3](cutover.md)) | no | proposed | — |
+| V-19 | D-03 | Overlapping terms resolve arbitrarily | Overlaps rejected at write | F04 | test | *pending* | no | proposed | n/a |
+| V-20 | D-08 | Whole grid always submitted | Partial upsert; omitted students untouched | F07 | test | *pending* | no | proposed | — |
+| V-21 | — | `LastUpdated`/`AlertDate` `NOT NULL DEFAULT GETDATE()` | `ModifiedAt` null on insert; projections use `ModifiedAt ?? CreatedAt` as a global convention | F01a | test | `GetTestEntitiesHandlerTests.Handle_WhenNeverModified_ProjectsLastUpdatedFromCreatedAt`, `…_WhenModified_ProjectsLastUpdatedFromModifiedAt` | n/a | **verified** | n/a |
+| V-22 | — | `ResolvedBy VARCHAR(100)` | `Guid?` plus `LegacyResolvedBy` | F10 | test (integration) | *pending* — a column-shape assertion against the applied schema | no | proposed | n/a |
+| V-23 ● | D-02 | Code description joined at read time | Description snapshotted onto the attendance row; redefining a description no longer changes historical display | F01d | test | *pending* | no | proposed | — |
+| V-24 | L-15 | Grade filter silently inert; empty grade always passed | `?grade=` is an explicit optional filter | F06 | test | *pending* | no | proposed | n/a |
+| V-25 ● | L-16 | Date fixed at form load; no back-dating | Date is an explicit request parameter, bounded (not future, within a configured back-dating window) | F07 | test | *pending* | config toggle | proposed | — |
+| V-26 | L-10 | Threshold default `10` written twice | Single `domain` constant used by both F07 and F09 | F01b | test | `AbsenceRulesTests.ResolveThreshold_WhenSchoolThresholdNull_ReturnsDefaultOfTen` | n/a | **verified** | n/a |
+| V-27 ● | — | SQL Server's case-insensitive collation treated `A` and `a` as the same attendance code | Postgres unique indexes are case-sensitive, so both could coexist. A check constraint forces uppercase, making the codes behave as before | F01c, F03 | test | `MigrationDdlTests.Migration_DeclaresCheckConstraintWithItsPinnedNameAndPredicate` | no | **implemented** | — |
+| V-28 ● | — | No access control of any kind: `sp_GetStudentAttendance` filtered on `@StudentID` and the year with no school predicate, so any caller could read any student's history and a former school kept everything it had recorded | Read access follows `Student.SchoolId` (DEC-16). At transfer the former school loses the student's history, absenteeism figure and alerts — including an alert it raised and was mid-way through triaging. The obvious repair, "authorised for the current school **or** any row's school", is rejected: it is an existence-and-prior-relationship oracle on the endpoint DEC-15 exists to harden | F08, F09, F10 | test | *pending* | no | proposed | — |
 
 **Preserved behaviours** — deliberately unchanged, listed so the log is not read as exhaustive by omission:
 

@@ -28,7 +28,7 @@ under the old one.
 | From | Consumed | Failure mode if absent |
 |---|---|---|
 | **F01d** | `StudentAlert`, `student_alerts`, `DbSet<StudentAlert>` on `IDbContext` | Nothing to read or resolve |
-| **F01d** | `ix_student_alerts_…` unique `WHERE resolved_at IS NULL AND is_deleted = false` | A resolution cannot free the episode slot, so no re-raise is possible |
+| **F01d** | `ix_student_alerts_open_episode`, unique, `WHERE resolved_at IS NULL AND is_deleted = false` | A resolution cannot free the episode slot, so no re-raise is possible |
 | **F01d** | `ck_student_alerts_resolution_consistent` | A resolution could write `ResolutionSource` with no `ResolvedAt`, invisible to both the index filter and the "open" query |
 | **F01d** | `AlertType` enum, `ResolutionSource` mapped `HasConversion<string>()` | The `?status=` and `resolutionSource` contracts have no vocabulary |
 | **F01b** | `AbsenceRules.DefaultThreshold` (V-26) | The drift comparison hard-codes `10` — L-10, again |
@@ -214,10 +214,13 @@ Consequences, stated because they are user-visible:
   to collapse duplicates, not the database, and F10 has no notification layer, so both are shown.
 - **A former school loses the alert it raised**, including one it was mid-way through triaging. That
   is V-28's accepted cost, restated here at the point it becomes visible.
-- **The driving index is `Student (SchoolId, IsActive)` (design §3), not
-  `ix_student_alerts_school_id_school_year_start`.** F01d declared that index for a predicate F10
-  does not issue. It is not wasted — F07's raise/auto-resolve path and the reconciliation report both
-  filter on `alert.school_id` — but F10 makes no `EXPLAIN` claim, and the mismatch is risk R-2.
+- **The driving index is `Student (SchoolId, IsActive)` (design §3).** As built, `student_alerts`
+  carries only `ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start`
+  — the school-keyed index F01d's spec listed
+  (`ix_student_alerts_school_id_school_year_start`) **was not shipped**. That is convenient rather
+  than planned: the predicate F10 issues is on `students.school_id`, so the plan is `students`
+  filtered, then a nested loop into `student_alerts` on `student_id`. F10 makes no `EXPLAIN` claim;
+  risk R-2.
 
 `WhereAuthorized(currentUser)` is therefore **not** used on the alert query: it would apply the
 predicate to `alert.SchoolId`, which is the reading this section rejects. Scope is asserted with
@@ -445,8 +448,14 @@ own.
    `ShouldRaise_WhenManuallyResolvedThisYear_ReturnsFalse`. One of the two must move. F10 does not
    own V-08's F01b half and does not change it — it is reported so the cross-reference test's failure
    is not mistaken for an F10 defect.
-4. **DEC-16 assigns access by `Student.SchoolId` but F01d indexed `alert.SchoolId`.**
-   `ix_student_alerts_school_id_school_year_start` supports a predicate F10 does not issue (§3). Not
-   a contradiction — F07 and the F12 reconciliation report both use it — but it means F10 makes no
-   query-plan claim, and if alert volumes make the student join expensive the repair is an index,
-   which is F01d's to author.
+4. **F01d's spec lists an index its implementation did not ship.** F01d §5 declares
+   `ix_student_alerts_school_id_school_year_start`; `StudentAlertConfiguration` as merged declares
+   only `ix_student_alerts_open_episode` and `ix_student_alerts_student_id_school_year_start`. F10
+   does not need it (§3 filters on `students.school_id`), so F10 does not request it — but F07's
+   raise/auto-resolve path and F12's reconciliation report both filter on `alert.school_id`, and one
+   of them should decide whether the spec or the implementation is right. Reported, not resolved:
+   the index is F01d's to author.
+
+   The related, larger point stands regardless: DEC-16 assigns access by `Student.SchoolId`, so F10
+   makes no query-plan claim, and if alert volumes make the student join expensive the repair is an
+   index, which is F01d's.

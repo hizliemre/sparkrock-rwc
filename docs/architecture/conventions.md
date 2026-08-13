@@ -8,13 +8,13 @@ Rules marked **⚙** are mechanically enforced (analyzer, `.editorconfig`, or te
 
 ## 1. Route table
 
-`UseSparkrockRwc()` maps `MapGroup("api/v1")` (F01a — the group currently omits the version). **Modules map paths relative to that group** — never `/api/...`, or the prefix doubles. ⚙ *test walks `EndpointDataSource` and asserts every mapped path matches the feature spec front-matter.*
+`UseSparkrockRwc()` maps `MapGroup("api/v1")`. **Modules map paths relative to that group** — never `/api/...`, or the prefix doubles. ⚙ *`RouteGroupTests` walks `EndpointDataSource` and asserts every mapped path sits under `api/v1/`. It supplies the `features` assembly to the Carter catalog explicitly, because production discovery keys on `Assembly.GetEntryAssembly()` and that is the test host under a test runner — so the prefix is covered, and the catalog resolving the right assembly is not. Matching paths against the feature spec front-matter is still to come.*
 
 | Feature | Method | Module-relative path | Notes |
 |---|---|---|---|
 | F02 | `GET` | `/schools` | paged; `?includeInactive`, `?q` |
 | F02 | `POST` | `/schools` | 201 + `Location` |
-| F02 | `GET` `PUT` `DELETE` | `/schools/{schoolId}` | `DELETE` deactivates (DEC-11) |
+| F02 | `GET` `PUT` `DELETE` | `/schools/{schoolId}` | `DELETE` deactivates (DEC-20) |
 | F03 | `GET` `POST` | `/attendance-codes` | global, not school-scoped |
 | F03 | `GET` `PUT` `DELETE` | `/attendance-codes/{codeId}` | Guid in the path; `Value` in bodies |
 | F04 | `GET` `POST` | `/schools/{schoolId}/terms` | overlap → 409 `TERM.OVERLAP` (V-19) |
@@ -23,12 +23,12 @@ Rules marked **⚙** are mechanically enforced (analyzer, `.editorconfig`, or te
 | F05 | `GET` `PUT` `DELETE` | `/schools/{schoolId}/students/{studentId}` | |
 | F06 | `GET` | `/schools/{schoolId}/attendance/{date}` | `?grade=` **optional** (V-24) |
 | F07 | `POST` | `/schools/{schoolId}/attendance/{date}/submissions` | 201 + `Location` |
-| F08 | `GET` | `/students/{studentId}/attendance` | `?schoolYear=` or `?from=&to=`; paged |
+| F08 | `GET` | `/students/{studentId}/attendance` | `?schoolYear=` or `?from=&toExclusive=`; paged |
 | F09 | `GET` | `/students/{studentId}/absenteeism` | `?schoolYear=` |
 | F09 | `GET` | `/schools/{schoolId}/absenteeism` | `?schoolYear=&chronicOnly=`; paged |
-| F10 | `GET` | `/schools/{schoolId}/alerts` | `?status=open|resolved&schoolYear=`; paged |
+| F10 | `GET` | `/schools/{schoolId}/alerts` | `?status=open\|resolved&schoolYear=`; paged |
 | F10 | `POST` | `/alerts/{alertId}/resolutions` | 201; 409 if already resolved |
-| F11 | `GET` | `/schools/{schoolId}/attendance-submissions` | `?from=&to=`; keyset paged |
+| F11 | `GET` | `/schools/{schoolId}/attendance-submissions` | `?from=&toExclusive=`; keyset paged |
 | F11 | `GET` | `/attendance-submissions/{submissionId}` | target of F07's `Location` |
 | F12 | — | none | console entry point (DEC-17) |
 
@@ -37,6 +37,8 @@ Rules marked **⚙** are mechanically enforced (analyzer, `.editorconfig`, or te
 **F07 is `POST` to a subordinate collection, not `PUT`.** The save appends an `AttendanceSubmissionLog` row that F11 exposes, so the identical request twice produces two observable resources — not idempotent, therefore not `PUT`. It is also a partial upsert (V-20), which is not `PUT`'s replace semantics.
 
 **F06 and F07 do not share a URL.** The roster carries an optional grade filter and returns rows with no attendance yet; the submission carries an arbitrary student list; the response is a third shape. Three shapes, three contracts.
+
+**There is no `?to=` anywhere in the API.** Every date-range filter is `?from=` (inclusive) and `?toExclusive=` (exclusive); §2 states the rule and the reason once, and this table spells the names that way for every feature that has one. Two features carry a range today, and they must not carry two conventions for one concept.
 
 ---
 
@@ -52,14 +54,24 @@ The **addressed resource** decides the status. Body items never do.
 | 201 | resource created — always with `Location` and the created id |
 | 204 | successful `DELETE` (deactivation), idempotent on an already-inactive resource |
 | 400 | malformed request; any problem with body content, including all per-entry reference failures |
+| 403 | the caller may see the addressed resource but is not privileged to perform **this operation** on it |
 | 404 | an `{id}` in the **path** does not resolve, is soft-deleted, or is outside `AuthorizedSchoolIds` |
 | 409 | valid request conflicting with persisted state: duplicate `AttendanceCode.Value`, overlapping term, alert already resolved, concurrent-submission race |
 | 422 | not used — do not introduce it |
 
+**404 for tenancy, 403 for privilege on a globally visible resource.** The two are not interchangeable and choosing between them is not a judgement call:
+
+- The caller is **outside the tenant boundary** — the resource is school-scoped and the school is not in `AuthorizedSchoolIds` — → **404**, with a payload identical to genuine not-found. A distinguishable status confirms the record exists, which is the existence oracle the tenancy rules exist to close. `EnsureAuthorized` throws `NotFoundException` and never `ForbiddenException`.
+- The caller can **legitimately read the resource** — it is globally visible, or it is in their scope — but the operation needs a privilege they do not hold (DEC-20's deactivation, DEC-19's purge) → **403** `ForbiddenException`. 404 there would contradict the 200 the same caller gets on the same id a moment earlier, and hides nothing.
+
+The test for which applies: *would a `GET` on this id succeed for this caller?* Yes → 403. No → 404.
+
+`violations` is omitted on 403 — there is no item to point at — and `detail` carries the fixed `ForbiddenException` message, never the name of the missing privilege.
+
 Consequences to apply consistently:
 
 - An unknown **or** inactive attendance code in the payload is a **400** field error, not 409. This supersedes V-14's original 409 for the code half; the school half stays 409 because the school is the addressed resource.
-- `GET` on an inactive resource returns **200** with `isActive: false`. F08 renders historical codes that may since have been deactivated — DEC-11's whole rationale is that deactivated references stay visible.
+- `GET` on an inactive resource returns **200** with `isActive: false`. F08 renders historical codes that may since have been deactivated — DEC-19's whole rationale is that deactivation hides a resource from default list results only, and that everything historical stays readable.
 - Cross-tenant 404 and not-found 404 emit an **identical** payload. A distinguishable code re-opens the existence oracle.
 - Reactivation is `PUT` with `isActive: true`.
 
@@ -84,11 +96,11 @@ One shape for every error response, framework-generated included. `AddProblemDet
 
 **The member is `violations`, not `errors`.** `ValidationProblemDetails` serialises `errors` as an *object*, so any code path producing one would emit a different shape at the same JSON pointer. `Microsoft.AspNetCore.Mvc.ValidationProblemDetails`, `Results.ValidationProblem` and `TypedResults.ValidationProblem` are banned (§7) so the collision cannot occur at all.
 
-- `source` ∈ `body` | `path` | `query` | `header` — a malformed `{date}` route value and a body field of the same name are otherwise indistinguishable.
-- `path` is camelCased **per segment**, preserving indexers. FluentValidation emits `Entries[3].AttendCode`; `JsonNamingPolicy.CamelCase` lowercases only the first character of the whole key, and never touches string *values* at all — so the transform runs where the violation is constructed, in one shared helper in `api`.
+- `source` ∈ `body` | `path` | `query` | `header` — a malformed `{date}` route value and a body field of the same name are otherwise indistinguishable. A `BusinessRuleException` states it, because the handler knows what it parsed. A validator cannot: it sees a property name and nothing about binding, so `api` infers it from the request (`ViolationSource`) — route value, then query key, then body, and never `body` for a request that carried none. `header` is never inferred.
+- `path` is camelCased **per segment**, preserving indexers. FluentValidation emits `Entries[3].AttendCode`; the serializer never renames string *values*, so the transform runs where the violation is constructed, in one shared helper in `api`. That helper **calls `JsonNamingPolicy.CamelCase.ConvertName` on each segment's identifier** rather than lowering the first character itself — the policy lowers the whole leading uppercase run, so `IDNumber` is written as `idNumber`, and a hand-rolled `iDNumber` would point at a key that does not exist in the payload. ⚙ *test asserts the helper agrees with the policy.*
 - `title` is defined per status, not per handler. `type` is a stable URI under one namespace.
 - `message` is server-side English, a developer aid. **`code` is the contract**; clients branch on it and render their own text.
-- Messages may echo bounded structured values (a code, an index) but **never** free-text fields. `Notes` never appears in a response body.
+- Messages may echo bounded structured values (a code, an index) but **never** free-text fields. **`Notes` never appears in an error message, a log template or telemetry** — and nowhere else does the ban reach. It is a rule about the channels that carry a payload the caller did not ask for: an envelope written by a failed request, a log line read by whoever holds log access, a span attribute. `notes` **is** returned in the response bodies that exist to return it — F06's roster and F08's history — because D-06 infers it as a roster column and F07's partial upsert would blank every note a clerk did not retype without it. Removing it would be a user-visible reduction from legacy and would need its own ● divergence; adding a ● to keep a legacy behaviour is backwards. The scoping is O-17's second branch, taken by F06 and F08 together. ⚙ *`api` sanitises every message it writes: a violation whose leaf segment names a free-text field gets a fixed replacement, an attempted string value longer than a bounded value is redacted from wherever it appears, and messages are length-capped. Enforced in the handler, not by asking rule authors to remember — several FluentValidation built-ins interpolate `{PropertyValue}` into their default English.*
 - Top-level `errorCode` for a plain validator failure is `VALIDATION.FAILED`.
 - `violations` is present iff the failure is per-item — validation or `BusinessRuleException`. Omitted on 404/409/500.
 
@@ -113,15 +125,32 @@ Both in `domain/Exceptions/`. Handlers emit CLR-cased paths (`Entries[3].AttendC
 
 `AddProblemDetails(o => o.CustomizeProblemDetails = ...)` **plus `app.UseStatusCodePages()`** — the customisation alone does not cover routing 404s, 405s, 415s or minimal-API binding failures, which never reach an `IExceptionHandler`.
 
-The callback runs on *every* ProblemDetails write, including those a handler already populated, so it must be **set-if-absent** for `errorCode`. Every `IExceptionHandler` writes through `IProblemDetailsService.TryWriteAsync`, never `Results.Problem(...)`, or stamping is skipped.
+The callback runs on *every* ProblemDetails write, including those a handler already populated, so it must be **set-if-absent** for `errorCode` — and "present" means a non-blank string. Anything else is normalised to the status default: the client branches on this member and cannot branch on a number, and a hard cast inside error handling throws where no handler is left to catch it.
+
+Every `IExceptionHandler` writes through `IProblemDetailsService`, never `Results.Problem(...)`, or stamping is skipped.
+
+**A declined content negotiation is still a handled response.** `DefaultProblemDetailsWriter.CanWrite` returns false when the request's `Accept` header names no JSON-compatible media type, so `TryWriteAsync` returns false; returning that value out of a handler reports "not handled" and `WebApplication`'s auto-registered developer exception page serves the exception, its stack trace and the request headers instead — a routine 404 becoming a 500 stack-trace page, triggered by a header the client chooses. Handlers therefore write through the shared `ProblemDetailsEnvelope.WriteAsync`, which falls back to writing the same envelope directly and returns `true`. ⚙
 
 | Status | Default code |
 |---|---|
 | 400 (malformed body/route) | `SYSTEM.MALFORMED_REQUEST` |
+| 403 (no route-level privilege) | `SYSTEM.FORBIDDEN` |
 | 404 (no route) | `SYSTEM.NOT_FOUND` |
 | 405 | `SYSTEM.METHOD_NOT_ALLOWED` |
 | 415 | `SYSTEM.UNSUPPORTED_MEDIA_TYPE` |
 | 500 | `SYSTEM.UNEXPECTED` — no detail leakage |
+
+### Edge configuration
+
+Settings that are contract, not deployment taste. All three default to refusing, because the anonymous stub identity means the same-origin policy and the `Host` header are the only access control the API currently has.
+
+| Setting | Value | Why |
+|---|---|---|
+| CORS | one policy, explicit origin list from `Cors:AllowedOrigins`, **never** `AllowCredentials`, empty by default | reflecting any origin *and* allowing credentials is the one combination that is always unsafe; Scalar is served same-origin at `/scalar/v1` and needs none of it |
+| `AllowedHosts` | explicit `;`-separated list, never `*` | `*` disables host filtering entirely; absent means `*` ⚙ *test parses every committed `appsettings*.json`* |
+| Transport | `UseHsts()` + `UseHttpsRedirection()` outside Development | HSTS is cached per host and `localhost` is a host, so issuing it in Development pins every other local project to HTTPS |
+
+The opt-in that permits the anonymous identity must not appear in **any** committed file — not `appsettings*.json`, and specifically not `launchSettings.json`, whose `environmentVariables` block is the obvious place to put it and is inherited by every clone. ⚙ *test scans `appsettings*.json`, `launchSettings.json`, `*.props`, `Dockerfile*` and `docker-compose*`, and asserts each of those kinds was actually reached.*
 
 ### Collections
 
@@ -135,7 +164,7 @@ Every collection endpoint returns an envelope from day one. Bare arrays nowhere 
 - F11 uses keyset (`?before=<submittedAt>`) — an append-only log grows without bound
 - One documented default sort per resource. **No client-supplied sort expressions** — dynamic ordering is how the raw-SQL ban gets quietly broken
 - Flat typed filters only; no filter DSL
-- Date ranges are half-open `[from, toExclusive)`, matching `SchoolYear.ToDateRange()`
+- **Date ranges are half-open `[from, toExclusive)`, and the wire parameters are named `?from=` and `?toExclusive=`** — the same words as the tuple `SchoolYear.ToDateRange()` returns, so the value passes from domain to wire without a rename or an adjustment. `?to=` is not used: it reads as "up to and including" while the predicate excludes it, which is a silent off-by-one at every boundary and cannot be fixed by documentation. A range endpoint that wants inclusive bounds does not get them; it converts (O-07, closed by F08 and F11 adopting the same spelling)
 - Absent optional fields are omitted, not `null`; empty collections are `[]`
 
 ### Wire formats
@@ -195,6 +224,9 @@ Source-generated `[LoggerMessage]` on the slice class. Never `logger.LogInformat
 | 1600–1699 | Alerts |
 | 1700–1799 | SubmissionLog |
 | 1800–1899 | Import |
+| 1900–1999 | Absenteeism |
+
+Absenteeism has a range although F09 is query-only and logs nothing today. An aggregate that gains a write path — a triage note, a threshold override, an export the business wants recorded — otherwise borrows Attendance's 1500–1599 because it is the nearest range with room, and two aggregates sharing a range is exactly the collision the allocation exists to prevent.
 
 **No PII in any log template or telemetry.** Counts, school id and date only — never student identifiers combined with attributes, and never `Notes`, which routinely carries health and safeguarding detail. ⚙ *test inspects `[LoggerMessage]` templates for banned field names; `EnableSensitiveDataLogging` is banned in all environments.*
 
@@ -210,12 +242,19 @@ Format `AREA.CONDITION` for the **value**; identifiers are **PascalCase** (`Erro
 
 Constraint violations map by **constraint name**, pinned with `HasDatabaseName` so they cannot drift. Translation lives in `infra.persistence.postgre` (VC-23: `PostgresException` is an Npgsql type and cannot be referenced from `features`).
 
-| Constraint | SqlState | Maps to |
-|---|---|---|
-| `ix_student_attendances_student_id_attend_date` | 23505 | 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
-| `ix_student_attendance_summaries_student_id_school_year_start` | 23505 | retry once, then 409 `ATTENDANCE.CONCURRENT_SUBMISSION` |
-| `ix_attendance_codes_value` | 23505 | 409 `ATTENDANCE_CODE.DUPLICATE_VALUE` |
-| any FK | 23503 | 409 `<AREA>.REFERENCE_MISSING` |
+A row is **retryable** or it is not, and the retry bound is `AttendanceSave.MaxAttempts` (DEC-14), never a per-row count. Mapping a racing first-insert straight to 409 fails a whole batch on one student — the defect DEC-14 corrected for attendance and DEC-18 decided again for the alert episode.
+
+| Constraint | SqlState | Retryable | Maps to |
+|---|---|---|---|
+| `ix_student_attendances_student_id_attend_date` | 23505 | yes | 409 `ATTENDANCE.CONCURRENT_SUBMISSION` on exhaustion |
+| `ix_student_attendance_summaries_student_id_school_year_start` | 23505 | yes | 409 `ATTENDANCE.CONCURRENT_SUBMISSION` on exhaustion |
+| `ix_student_alerts_open_episode` | 23505 | yes (DEC-18) | 409 `ALERT.DUPLICATE_OPEN_EPISODE` on exhaustion |
+| `ix_attendance_submission_logs_school_id_idempotency_key` | 23505 | no | 409 `ATTENDANCE.DUPLICATE_SUBMISSION` |
+| `ix_attendance_codes_value` | 23505 | no | 409 `ATTENDANCE_CODE.DUPLICATE_VALUE` |
+| `ix_student_attendances_legacy_id` | 23505 | no | 409 `IMPORT.DUPLICATE_LEGACY_ID` |
+| any FK | 23503 | no | 409 `<AREA>.REFERENCE_MISSING` |
+
+Retrying on `DbUpdateException` alone burns the bound on a permanent violation, so the predicate matches the constraint name and rethrows otherwise (DEC-14). An unmapped constraint is rethrown raw.
 
 ---
 

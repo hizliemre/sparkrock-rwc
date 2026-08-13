@@ -178,8 +178,9 @@ An earlier draft added `ClearTracking()` to the port. Not needed — `ex.Entries
 | Summary already updated | token mismatch → `DbUpdateConcurrencyException` | re-read `prior`, recompute |
 | Summary first-insert | `ix_student_attendance_summaries_student_id_school_year_start` | row now exists → update branch |
 | Attendance first-insert | `ix_student_attendances_student_id_attend_date` | row now exists → update branch |
+| Alert episode first-raise | `ix_student_alerts_open_episode` | episode now exists → raise suppressed (DEC-18 owns this row) |
 
-The third was previously mapped straight to 409, which would have failed a whole 28-student batch on one racing student. On exhaustion: 409 `ATTENDANCE.CONCURRENT_SUBMISSION`.
+The third was previously mapped straight to 409, which would have failed a whole 28-student batch on one racing student; the fourth is the same defect on the alert path and is decided in DEC-18. On exhaustion: 409 `ATTENDANCE.CONCURRENT_SUBMISSION`, except the fourth, which exhausts to 409 `ALERT.DUPLICATE_OPEN_EPISODE`.
 
 The retry predicate matches on constraint name and rethrows otherwise — matching on `DbUpdateException` alone would retry a permanent FK or check violation until the bound is exhausted.
 
@@ -213,10 +214,10 @@ The stub returns `IsSystemAdmin = true`. The point is not the stub's answer — 
 
 V-07c, V-17 and DEC-15 interact in ways no single divergence entry captures. Stated once, here.
 
-- **Counts span schools** within the school year (V-07c). The chronic-absenteeism figure a school reads therefore includes absences accrued elsewhere. This is a genuine safeguarding requirement **and** a cross-tenant disclosure — the read side carries a business sign-off marker, not only the write side.
-- **The governing threshold is the student's current school**, read through `Student.SchoolId`, not the summary's `SchoolId`. The summary's `SchoolId` is school-of-record for filtering only.
+- **Counts span schools** within the school year (V-07c). The chronic-absenteeism figure a school reads therefore includes absences accrued elsewhere. This is a genuine safeguarding requirement **and** a cross-tenant disclosure — the read side carries a business sign-off marker, not only the write side. **The marker covers F08's row-level history as well as F09's aggregate, and F08 is the larger of the two**: F09 discloses one integer, F08 discloses every row — date, code, flags, minutes late and the free-text note — for schools the caller has no access to. Q-05 blocks both.
+- **The governing threshold is the student's current school**, read through `Student.SchoolId`, not the summary's `SchoolId`. The summary's `SchoolId` is school-of-record for filtering only. This overrides what legacy did — a join from the summary's `SchoolID` to `Schools` — and is logged as V-17, whose "New behaviour" now states the override rather than "Same".
 - **Suppression is keyed per school**: `(StudentId, AlertType, SchoolYearStart, SchoolId)`. Keying it school-agnostically produced a safeguarding failure — while a former school's alert was open, the receiving school could neither raise its own nor see or resolve the existing one (DEC-15 returns 404), and a former school's manual resolution suppressed alerting at the new school for the rest of the year. Notification-level deduplication is the right place to collapse duplicates, not the database.
-- **Access follows `Student.SchoolId`.** A former school loses access at transfer. An earlier draft granted it retained read access to rows it recorded; that is not implementable under DEC-15's single membership check, and the obvious repair — "authorised for the current school **or** any row's school" — is an existence-and-prior-relationship oracle on the endpoint DEC-15 exists to harden. Logged as V-28.
+- **Access follows `Student.SchoolId`.** A former school loses access at transfer — history, absenteeism figure and alerts, including an alert it raised and was triaging. Retained read access to rows it recorded is not implementable under DEC-15's single membership check, and the obvious repair — "authorised for the current school **or** any row's school" — is an existence-and-prior-relationship oracle on the endpoint DEC-15 exists to harden. Logged as **V-28**, ● because a school losing sight of a live safeguarding concern is a change to school operations, not to a data shape.
 
 **`thresholdSourceSchoolId` is never returned.** An earlier draft added it for attribution. It is the student's *current* school, so returning it to a former school discloses where a child moved to — precisely the datum that must not flow backwards for a transfer driven by care placement or domestic abuse. Responses carry the threshold **value** plus a discriminator (`"thresholdSource": "currentSchool" | "requestingSchool"`); the school id stays in the audit record.
 
@@ -239,7 +240,8 @@ Carter discovery is `DependencyContextAssemblyCatalog(Assembly.GetEntryAssembly(
 - **Resolve at `< threshold`. No hysteresis.** An earlier draft resolved only below `threshold − 1`. That created a permanent contradictory state at exactly `threshold − 1` — alert open in F10, student not chronic in F09, with nothing saying which a school should believe — and F09 is graded minimum. It also reinstated L-07 by a different route: raise a school's threshold from 10 to 20 and an alert raised at 11 needs the count to fall below 19, but absence counts are monotonically non-decreasing under partial-upsert semantics, so the alert becomes permanent. The oscillation hysteresis guarded against requires a clerk repeatedly toggling one day's record, and the manual-resolution rule below already terminates that after one cycle.
 - **A manual resolution is never auto-re-raised** within the same school year and school. Otherwise a documented human decision is silently discarded by the next save that recounts at or above threshold.
 - **Comparisons use the school's current threshold**, not `ThresholdAtRaise`, which is audit-only. Changing a threshold does **not** retroactively re-evaluate; alerts re-evaluate when that student's attendance next changes. **A threshold change therefore requires manual triage** — F10 provides the query listing alerts whose `ThresholdAtRaise` differs from their school's current threshold. Without that query the rule silently strands alerts.
-- **One `StudentAlert` row is one episode.** Unique index `(StudentId, AlertType, SchoolYearStart, SchoolId) WHERE resolved_at IS NULL AND is_deleted = false` makes a double-raise impossible at the database. The `is_deleted` term is not optional: a soft-deleted open alert would otherwise occupy the slot invisibly and forever.
+- **One `StudentAlert` row is one episode.** Unique index `ix_student_alerts_open_episode` on `(StudentId, AlertType, SchoolYearStart, SchoolId) WHERE resolved_at IS NULL AND is_deleted = false` makes a double-raise impossible at the database. The `is_deleted` term is not optional: a soft-deleted open alert would otherwise occupy the slot invisibly and forever.
+- **Violating that index is retryable**, and this is where the answer lives — no other document restates it. Two concurrent submissions for the same student and school can both decide to raise; mapped straight to 409 the loser fails the whole batch, which is exactly the defect DEC-14 corrected for `ix_student_attendances_student_id_attend_date` ("previously mapped straight to 409, which would have failed a whole 28-student batch on one racing student"). The recovery is the same shape as DEC-14's summary first-insert: detach the `Added` alert, re-read, and the episode now exists so the raise is suppressed — the retry converges rather than repeating. It is therefore a **fourth retryable constraint** in DEC-14's table and in conventions §5, exhausting to 409 `ALERT.DUPLICATE_OPEN_EPISODE` after `AttendanceSave.MaxAttempts`. A registry row mapping it to a bare 409 is stale.
 - Resolution is recorded on the alert itself (`ResolvedAt`, `ResolvedBy`, `ResolutionSource ∈ {Manual, AutoBelowThreshold}`, `ResolutionReason`), not in a child table. A re-raise creates a new episode row, so each cycle already has its own audit trail.
 
 ### DEC-20 — Split `BaseEntity` from `SoftDeletableEntity` · *supersedes DEC-11*
@@ -293,7 +295,7 @@ Tests never assign audit fields. They advance a `FakeTimeProvider` between inser
 
 ### DEC-19 — Records retention and erasure · *accepted*
 
-DEC-11 removes every deletion path from reference entities, which for K-12 PII removes the ability to answer a records-destruction request — and `DELETE /students/{id}` returning success while flipping a flag actively misleads any downstream erasure workflow.
+DEC-20 removes every deletion path from reference entities, which for K-12 PII removes the ability to answer a records-destruction request — and `DELETE /students/{id}` returning success while flipping a flag actively misleads any downstream erasure workflow.
 
 - `IsActive = false` hides a resource from **default list results only**. Direct `GET`, historical attendance and alerts remain readable — F08 must render historical rows whose code or school is deactivated.
 - A separate, audited, `IsSystemAdmin`-only **purge** operation performs real erasure, distinct from deactivation, and is the only path that removes data.
@@ -412,17 +414,17 @@ The snapshot fields are echoed because D-02 makes them write-once — echoing is
 | F01a2 | Enforcement + hygiene: `.editorconfig` (with `EnforceCodeStyleInBuild`), `Directory.Build.props`, `Directory.Packages.props`, banned-API analyzer, `global.json`, `LICENSE`, `.gitignore`; rotate the **three** committed passwords and move the design-time connection string to user secrets + env (updating `DbContextFactory` and CLAUDE.md in the same commit); CORS allowlist, `NpgsqlDataSource` singleton, drop `AddDbContextFactory`, HTTPS/HSTS, `AllowedHosts` | — |
 | F01b | `SchoolYear` value object + converter + threshold constant + alert/chronic evaluation functions + boundary tests | — |
 | F01c | Reference model + migration 1: `School` (incl. `TimeZoneId`), `Student`, `AttendanceCode`, `SchoolTerm` (incl. `IsActive`) | F01a, F01a2, F01b |
-| F01d | Attendance model + migration 2: attendance, summary (+ concurrency token), alert, submission log, anomaly table, filtered indexes | F01c |
+| F01d | Attendance model + migration 2: attendance, summary (+ concurrency token), alert, submission log, anomaly table, filtered indexes | F01c, F01f |
 | F01f | Testcontainers fixture and integration test project | F01a |
 | F02 | Schools CRUD | F01c |
-| F03 | Attendance Codes CRUD | F01c |
+| F03 | Attendance Codes CRUD | F01c, F01f |
 | F04 | School Terms CRUD (incl. overlap rejection, V-19) | F01c |
 | F05 | Students CRUD | F01c |
 | F06 | Attendance Roster | F01d, F00 |
 | F07 | **Save Daily Attendance** | F01d, F01f, F00 |
-| F08 | **Student Attendance History** | F01d |
-| F09 | **Chronic Absenteeism Status** (single + school-wide) | F01d |
-| F10 | Alerts — list and resolve (owns the DEC-18 lifecycle rules) | F01d |
+| F08 | **Student Attendance History** | F01d, F01f |
+| F09 | **Chronic Absenteeism Status** (single + school-wide) | F01d, F01f |
+| F10 | Alerts — list and resolve (owns the DEC-18 lifecycle rules) | F01d, F01f |
 | F11 | Submission Log Query | F01d |
 | F12 | Legacy Data Import (console) | F01c, F01d, F07 |
 | F13 | `TestEntity` removal + `DROP TABLE` migration + CLAUDE.md reference-slice update | F07, F08, F09 verified |
@@ -441,24 +443,26 @@ Every item below is required by two or more features. Left unassigned, each beco
 | `ErrorCodes.Validation.cs`, `ErrorCodes.System.cs` seed + the flat-constant rename | F01a | all |
 | Error envelope, `CustomizeProblemDetails`, `UseStatusCodePages`, camelCase path transform, `WithApi()` | F01a | all |
 | `PagedResponse<T>` + `PageInfo` + `?page/?pageSize` binding | F01a | F02, F05, F08, F09, F10, F11 |
-| `IDbContext.ClearTracking()`; `SaveChangesAsync` override translating `PostgresException` | F01a | F07 |
+| `SaveChangesAsync` override translating `PostgresException` | F01a | F07 |
 | Constraint-name → error-code registry (F01a ships it injectable; the feature authoring a constraint adds its row) | F01a | F01c, F01d, F03, F07 |
 | `MapGroup("api/v1")` | F01a | all |
 | CLAUDE.md reference-slice caveat | F01a | all — it is the first file every workstream reads |
 | `SchoolYear` + converter (registered once in `ConfigureConventions`) | F01b | F07, F08, F09, F12 |
 | `AbsenceThreshold` default constant (V-26) | F01b | F07, F09 |
 | `AlertEvaluation` + `ChronicAbsenteeism` pure functions | F01b | F07, F09, F10, F12 |
-| Absence recount function (extracted from F07, not inlined) | F01b | F07, F12 |
+| `domain/Attendance/AbsenceRecount.cs` — the shared recount predicate | F07 | F07, F12 |
 | `IActivatable` + `ActivationPolicy` — the `IsActive` transition check | F02 | F03, F04, F05 |
-| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F01d, F03, F04, F07, F08, F10 |
+| `Testcontainers` fixture calling `MigrateAsync` once per collection | F01f | F01d, F03, F07, F08, F09, F10 |
 
-`F01f` gains **blocks-merge** edges to F01d, F03, F07, F08 and F10 — each has a `Verified by` that only the integration tier can satisfy. Not F04: its term-overlap rejection is application-enforced by decision, so nothing there needs a container.
+`F01f` gains **blocks-merge** edges to F01d, F03, F07, F08, F09 and F10 — each has an assertion that only the integration tier can satisfy, and each carries the edge in the table above. Not F04: its term-overlap rejection is application-enforced by decision, so nothing there needs a container.
+
+**F09's edge is not optional.** Its central predicate is the one VC-31 governs: a filter reaching into a converted value (`s.SchoolYearStart.StartYear == year`) throws at runtime and the whole-value form does not, and **both** shapes pass on EF InMemory, which has no translation step to fail. Without a container-backed test the feature that most needs one has nothing standing between it and a 500.
 
 **The activation check is one shared artifact, not four.** DEC-20 attaches privilege to the `IsActive` transition rather than to `DELETE`, and `PUT { isActive: false }` reaches the same state — so a per-endpoint check leaves the other half unguarded. F02 authors it; F03, F04 and F05 consume it.
 
-**F01e is gone** — DEC-14 removed the transaction seam.
+**There is no F01e.** It would have been the transaction seam, and DEC-14 removed the need for one. The id is not reused.
 
-**Edge semantics.** All edges are *blocks-start* except F13's, which is *blocks-merge* — F13 waits on F07/F08/F09 being verified, not merely started. F01f blocks F07's merge rather than its start.
+**Edge semantics.** All edges are *blocks-start* except two kinds, both *blocks-merge*: F13's, which waits on F07/F08/F09 being **verified** rather than started, and every F01f edge, which blocks its dependant's merge rather than its start — a slice is written against the handler tier and needs the container only to prove it.
 
 **Concurrent development.** Files every model-touching feature edits: `IDbContext.cs`, `SparkrockRwcDbContext.cs`, `Migrations/SparkrockRwcDbContextModelSnapshot.cs`, `features/ServiceExtensions.cs`. Rules: **migrations are authored only in F01c, F01d and F13** — a slice needing a schema change goes back to the model owner, and a non-empty `migrations:` front-matter field requires the migration owner's sign-off. One migration in flight at a time; regenerate the snapshot on rebase rather than hand-merging. `ErrorCodes` is partitioned per area so slices add files, not lines (conventions §5).
 
@@ -475,5 +479,5 @@ Recorded rather than silently defaulted. Each blocks the feature named.
 | Q-01 | Retention periods for attendance, alerts and audit records (DEC-19) | F12, cutover | business |
 | Q-02 | Source timezone of legacy `DATETIME` values (VC-19) | F12 | business |
 | Q-03 | Data volumes: schools, students, years of history, rows per table | F12 strategy, batch caps | business |
-| Q-04 | Business sign-off on the eight ● divergences | cutover | business |
-| Q-05 | Whether cross-school absence disclosure (DEC-16) is authorised for all roles or a named subset | F09 | business |
+| Q-04 | Business sign-off on the twelve ● divergences | cutover | business |
+| Q-05 | Whether cross-school absence disclosure (DEC-16) is authorised for all roles or a named subset — the row-level history F08 returns as much as the aggregate F09 returns | F08, F09 | business |
