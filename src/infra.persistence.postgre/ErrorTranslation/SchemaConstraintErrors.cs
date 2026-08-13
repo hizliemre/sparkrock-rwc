@@ -38,6 +38,7 @@ public static class SchemaConstraintErrors
         public const string SummaryStudentYear = "ix_summaries_student_id_school_year_start";
         public const string AlertOpenEpisode = "ix_student_alerts_open_episode";
         public const string SubmissionIdempotencyKey = "ix_submission_logs_school_id_idempotency_key";
+        public const string AttendanceCodeValue = "ix_attendance_codes_value";
     }
 
     /// <summary>The mappings, keyed by the exact <c>HasDatabaseName</c> string.</summary>
@@ -76,6 +77,21 @@ public static class SchemaConstraintErrors
             [Names.SubmissionIdempotencyKey] = new(
                 ErrorCodes.Attendance.DuplicateSubmission,
                 "This submission has already been received.",
+                Retryable: false),
+
+            // Not retryable, and the index is the only race-free authority for the rule: F03's POST
+            // deliberately does no pre-SELECT, because a read-then-insert is a TOCTOU with a nicer
+            // stack trace. Unlike every other unique index here this one is *unfiltered*, so the 409
+            // fires whether or not the occupying code is active — deactivating never frees a value
+            // (F01c §6), and the only route back is PUT { isActive: true } on the existing row.
+            //
+            // Conventions §5 has carried this row since F01a and F01c shipped both the index and the
+            // error code, but nothing mapped one to the other; F03's spec and tasks both state the row
+            // already existed. It did not, and nothing failed, because TryResolve is an ordinal lookup
+            // where a missing key is a miss rather than an error.
+            [Names.AttendanceCodeValue] = new(
+                ErrorCodes.AttendanceCode.DuplicateValue,
+                "An attendance code with this value already exists.",
                 Retryable: false),
 
             // Not retryable. The importer derives the key from the source row, so a second attempt

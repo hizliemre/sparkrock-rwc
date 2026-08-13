@@ -13,7 +13,7 @@ namespace domain.AttendanceCodes;
 ///         history — which is deliberate, and the reason nothing may recompute those flags from here.
 ///     </para>
 /// </remarks>
-public sealed class AttendanceCode : BaseEntity, ILegacyEntity
+public sealed class AttendanceCode : BaseEntity, ILegacyEntity, IActivatable
 {
     /// <summary>
     ///     The short code itself, unique across active and inactive codes.

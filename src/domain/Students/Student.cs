@@ -15,7 +15,7 @@ namespace domain.Students;
 ///         highest-value combination in the dataset.
 ///     </para>
 /// </remarks>
-public sealed class Student : BaseEntity, ILegacyEntity, ISchoolScoped
+public sealed class Student : BaseEntity, ILegacyEntity, ISchoolScoped, IActivatable
 {
     public required Guid SchoolId { get; set; }
 

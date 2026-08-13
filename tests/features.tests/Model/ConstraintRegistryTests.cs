@@ -119,6 +119,7 @@ public sealed class ConstraintRegistryTests
             domain.Exceptions.ErrorCodes.Attendance.DuplicateSubmission,
             domain.Exceptions.ErrorCodes.Alert.DuplicateOpenEpisode,
             domain.Exceptions.ErrorCodes.Import.DuplicateLegacyId,
+            domain.Exceptions.ErrorCodes.AttendanceCode.DuplicateValue,
         ];
 
         foreach (ConstraintErrorMapping mapping in SchemaConstraintErrors.Mappings.Values)
