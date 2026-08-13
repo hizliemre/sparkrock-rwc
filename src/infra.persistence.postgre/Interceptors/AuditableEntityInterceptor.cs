@@ -1,4 +1,5 @@
 using domain.Abstraction;
+using domain.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -10,18 +11,21 @@ namespace infra.persistence.postgre.Interceptors;
 ///     everywhere else.
 /// </summary>
 /// <remarks>
-///     The refusal is DEC-20's load-bearing half. Splitting the base class makes <em>soft</em>
-///     deletion inexpressible for reference entities, not deletion: <c>Remove(school)</c> still
-///     compiles, and with no rewrite to catch it EF issues a real <c>DELETE</c> that cascades to the
-///     school's students. The rule here is total rather than category-based — no marker interface and
-///     no per-type list, so there is nothing to forget when an entity is added.
+///     Registered <b>scoped</b>. It consumes a scoped <see cref="ICurrentUser" />, and holding one in
+///     a singleton would capture the first request's identity for the process lifetime.
+///     <para>
+///         The delete refusal is the load-bearing half of the base-class split. Splitting makes
+///         <em>soft</em> deletion inexpressible for reference entities, not deletion:
+///         <c>Remove(school)</c> still compiles, and with no rewrite to catch it EF issues a real
+///         <c>DELETE</c> that cascades to the school's students. The rule is total rather than
+///         category-based — no marker interface, nothing to forget when an entity is added.
+///     </para>
 /// </remarks>
-internal sealed class AuditableEntityInterceptor : SaveChangesInterceptor
+internal sealed class AuditableEntityInterceptor(
+    ICurrentUser currentUser,
+    TimeProvider timeProvider,
+    IAuditOverride auditOverride) : SaveChangesInterceptor
 {
-    // The project has no authorization yet, so every write is attributed to this placeholder user.
-    // Replaced by ICurrentUser in T01a-07.
-    private static readonly Guid SystemUserId = Guid.Empty;
-
     public override InterceptionResult<int> SavingChanges(
         DbContextEventData eventData,
         InterceptionResult<int> result)
@@ -39,37 +43,50 @@ internal sealed class AuditableEntityInterceptor : SaveChangesInterceptor
         return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 
-    private static void ApplyAuditInformation(DbContext? context)
+    private void ApplyAuditInformation(DbContext? context)
     {
         if (context is null)
             return;
 
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        Guid actor = auditOverride.IsActive ? auditOverride.ActingUserId : currentUser.UserId;
 
         foreach (EntityEntry<BaseEntity> entry in context.ChangeTracker.Entries<BaseEntity>())
         {
             switch (entry.State)
             {
                 case EntityState.Added:
-                    IAuditableEntity added = entry.Entity;
-                    added.CreatedAt = now;
-                    added.CreatedBy = SystemUserId;
+                    ApplyCreated(entry.Entity, now, actor);
                     break;
 
                 case EntityState.Modified:
                     IAuditableEntity modified = entry.Entity;
                     modified.ModifiedAt = now;
-                    modified.ModifiedBy = SystemUserId;
+                    modified.ModifiedBy = actor;
                     break;
 
                 case EntityState.Deleted:
-                    ApplyDelete(entry, now);
+                    ApplyDelete(entry, now, actor);
                     break;
             }
         }
     }
 
-    private static void ApplyDelete(EntityEntry<BaseEntity> entry, DateTimeOffset now)
+    private void ApplyCreated(BaseEntity entity, DateTimeOffset now, Guid actor)
+    {
+        IAuditableEntity audited = entity;
+        audited.CreatedBy = actor;
+
+        // Under an import override, an already-populated CreatedAt is a legacy instant and is the
+        // only genuine audit data the old system had. Overwriting it would make every imported row
+        // claim to have been created at import time.
+        bool preserveLegacyInstant = auditOverride.IsActive && audited.CreatedAt != default;
+
+        if (!preserveLegacyInstant)
+            audited.CreatedAt = now;
+    }
+
+    private static void ApplyDelete(EntityEntry<BaseEntity> entry, DateTimeOffset now, Guid actor)
     {
         if (entry.Entity is not SoftDeletableEntity softDeletable)
         {
@@ -85,10 +102,10 @@ internal sealed class AuditableEntityInterceptor : SaveChangesInterceptor
         ISoftDeletable deleted = softDeletable;
         deleted.IsDeleted = true;
         deleted.DeletedAt = now;
-        deleted.DeletedBy = SystemUserId;
+        deleted.DeletedBy = actor;
 
         IAuditableEntity audited = softDeletable;
         audited.ModifiedAt = now;
-        audited.ModifiedBy = SystemUserId;
+        audited.ModifiedBy = actor;
     }
 }

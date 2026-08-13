@@ -4,6 +4,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <InternalsVisibleTo Include="features.tests" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ProjectReference Include="..\features\features.csproj" />
       <ProjectReference Include="..\infra.persistence.postgre\infra.persistence.postgre.csproj" />
       <ProjectReference Include="..\service.defaults\service.defaults.csproj" />

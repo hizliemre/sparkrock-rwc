@@ -7,12 +7,14 @@
 
     <ItemGroup>
       <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+      <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
       <PackageReference Include="Microsoft.NET.Test.Sdk" />
       <PackageReference Include="xunit" />
       <PackageReference Include="xunit.runner.visualstudio" />
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\src\api\api.csproj" />
       <ProjectReference Include="..\..\src\features\features.csproj" />
       <ProjectReference Include="..\..\src\infra.persistence.postgre\infra.persistence.postgre.csproj" />
     </ItemGroup>

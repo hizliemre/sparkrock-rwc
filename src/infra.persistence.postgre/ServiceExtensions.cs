@@ -3,6 +3,7 @@ using infra.persistence.sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using service.defaults;
 
@@ -20,7 +21,12 @@ public static class ServiceExtensions
         NpgsqlDataSourceBuilder dataSourceBuilder = new(connectionString);
         NpgsqlDataSource dataSource = dataSourceBuilder.Build();
 
-        services.AddSingleton<AuditableEntityInterceptor>();
+        // TimeProvider is not auto-registered; without this the first save fails at DI resolution.
+        services.TryAddSingleton(TimeProvider.System);
+
+        // Scoped, not singleton: it consumes a scoped ICurrentUser, and a singleton would capture
+        // the first request's identity for the lifetime of the process.
+        services.AddScoped<AuditableEntityInterceptor>();
 
         services.AddDbContext<SparkrockRwcDbContext>(ConfigureDatasourceOptions);
         services.AddScoped<IDbContext>(provider => provider.GetRequiredService<SparkrockRwcDbContext>());
