@@ -1,8 +1,10 @@
 using domain.Security;
 using features.integration.tests.Fakes;
 using infra.persistence.postgre;
+using infra.persistence.postgre.ErrorTranslation;
 using infra.persistence.postgre.Interceptors;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Time.Testing;
 
 namespace features.integration.tests;
@@ -27,29 +29,48 @@ namespace features.integration.tests;
 ///         The identity defaults to a <b>non-admin with no schools</b>, for the reason
 ///         <see cref="FakeCurrentUser" /> documents.
 ///     </para>
+///     <para>
+///         <b>The constraint registry is the third load-bearing piece</b>, and it was absent until two
+///         features had each worked around it privately. <see cref="SparkrockRwcDbContext" /> falls
+///         back to <c>ConstraintErrorRegistry.Empty</c> when none is supplied, under which a
+///         <c>23505</c> is rethrown raw instead of translated — so a test asserting the domain
+///         exception fails on the exception <em>type</em>, which reads as a missing database
+///         constraint rather than as a missing registration. F07 and F10 each built their own context
+///         to get past it. Supplying the same table <c>WithPostgre</c> installs is what makes this
+///         factory the twin it claims to be.
+///     </para>
 /// </remarks>
 internal static class ContainerDbContextFactory
 {
     internal static readonly DateTimeOffset DefaultNow = new(2026, 9, 14, 8, 0, 0, TimeSpan.Zero);
 
+    /// <param name="extraInterceptors">
+    ///     Additional interceptors, for tests that count commands or inject a failure. It exists so
+    ///     that needing one is not a reason to hand-build a context and thereby lose whatever this
+    ///     factory is currently getting right — which is how the constraint registry came to be
+    ///     missing from two features' private contexts.
+    /// </param>
     public static SparkrockRwcDbContext Create(
         string connectionString,
         TimeProvider? clock = null,
         ICurrentUser? currentUser = null,
-        IAuditOverride? auditOverride = null)
+        IAuditOverride? auditOverride = null,
+        IInterceptor[]? extraInterceptors = null)
     {
         AuditableEntityInterceptor interceptor = new(
             currentUser ?? new FakeCurrentUser(),
             clock ?? new FakeTimeProvider(DefaultNow),
             auditOverride ?? new AuditOverride());
 
-        DbContextOptions<SparkrockRwcDbContext> options = new DbContextOptionsBuilder<SparkrockRwcDbContext>()
+        DbContextOptionsBuilder<SparkrockRwcDbContext> options = new DbContextOptionsBuilder<SparkrockRwcDbContext>()
             .UseNpgsql(connectionString)
             .UseSnakeCaseNamingConvention()
-            .AddInterceptors(interceptor)
-            .Options;
+            .AddInterceptors(interceptor);
 
-        return new SparkrockRwcDbContext(options);
+        if (extraInterceptors is not null)
+            options.AddInterceptors(extraInterceptors);
+
+        return new SparkrockRwcDbContext(options.Options, new ConstraintErrorRegistry(SchemaConstraintErrors.Mappings));
     }
 
     /// <summary>A clock a test can advance between saves to order rows deterministically.</summary>

@@ -140,8 +140,7 @@ public sealed class ResolveAlertPersistenceTests(PostgresContainerFixture fixtur
         const int schoolYearStart = 2082;
 
         // Its own context: ContainerDbContextFactory supplies no constraint-error registry, so a
-        // 23505 arrives from it as a raw DbUpdateException (see AlertFixture.TranslatingContext).
-        await using SparkrockRwcDbContext dbContext = AlertFixture.TranslatingContext(fixture.ConnectionString);
+        await using SparkrockRwcDbContext dbContext = ContainerDbContextFactory.Create(fixture.ConnectionString);
         School school = await AlertFixture.SchoolAsync(dbContext, threshold: 10);
         Student student = await AlertFixture.StudentAsync(dbContext, school.Id);
 

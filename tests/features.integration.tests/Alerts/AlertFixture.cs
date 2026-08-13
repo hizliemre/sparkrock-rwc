@@ -30,37 +30,6 @@ internal static class AlertFixture
 {
     public const string TimeZoneId = "America/Toronto";
 
-    /// <summary>
-    ///     A context whose constraint violations arrive as domain exceptions.
-    /// </summary>
-    /// <remarks>
-    ///     <b><see cref="ContainerDbContextFactory" /> does not supply an
-    ///     <see cref="IConstraintErrorRegistry" /></b>, so a context built through it falls back to
-    ///     <c>ConstraintErrorRegistry.Empty</c> and <c>SaveChangesAsync</c>'s translation matches
-    ///     nothing — a <c>23505</c> surfaces as a raw <see cref="DbUpdateException" />. That is
-    ///     correct for every test that does not assert on the translation and a trap for every test
-    ///     that does: the assertion fails on the exception <em>type</em>, which reads as a missing
-    ///     constraint rather than as a missing registry. F07's harness builds its own context for the
-    ///     same reason; this is the second copy, and the shared factory is where the fix belongs.
-    /// </remarks>
-    public static SparkrockRwcDbContext TranslatingContext(string connectionString)
-    {
-        AuditableEntityInterceptor audit = new(
-            new FakeCurrentUser(),
-            new FakeTimeProvider(ContainerDbContextFactory.DefaultNow),
-            new AuditOverride());
-
-        DbContextOptions<SparkrockRwcDbContext> options = new DbContextOptionsBuilder<SparkrockRwcDbContext>()
-            .UseNpgsql(connectionString)
-
-            // Must match WithPostgre and the design-time factory, or the migration creates snake_case
-            // tables the tests then query as PascalCase.
-            .UseSnakeCaseNamingConvention()
-            .AddInterceptors(audit)
-            .Options;
-
-        return new SparkrockRwcDbContext(options, new ConstraintErrorRegistry(SchemaConstraintErrors.Mappings));
-    }
 
     public static async Task<School> SchoolAsync(SparkrockRwcDbContext dbContext, int? threshold)
     {

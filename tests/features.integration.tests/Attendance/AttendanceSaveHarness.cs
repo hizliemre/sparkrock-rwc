@@ -103,23 +103,15 @@ internal sealed class AttendanceSaveHarness : IAsyncDisposable
     /// <summary>A second context on its own connection — the other writer in every race below.</summary>
     public SparkrockRwcDbContext NewContext(IInterceptor[]? interceptors = null)
     {
-        AuditableEntityInterceptor audit = new(CurrentUser, Clock, new AuditOverride());
-
-        DbContextOptionsBuilder<SparkrockRwcDbContext> options = new DbContextOptionsBuilder<SparkrockRwcDbContext>()
-            .UseNpgsql(_fixture.ConnectionString)
-
-            // Must match WithPostgre and the design-time factory, or the migration creates snake_case
-            // tables the tests then query as PascalCase.
-            .UseSnakeCaseNamingConvention()
-            .AddInterceptors(audit);
-
-        if (interceptors is not null)
-            options.AddInterceptors(interceptors);
-
-        SparkrockRwcDbContext context = new(
-            options.Options,
-            new infra.persistence.postgre.ErrorTranslation.ConstraintErrorRegistry(
-                infra.persistence.postgre.ErrorTranslation.SchemaConstraintErrors.Mappings));
+        // Built through the shared factory rather than by hand. This used to construct its own
+        // options and supply the constraint registry itself, which is how F10 came to make a second
+        // private copy of the same workaround; the factory now owns both the registry and the
+        // extra-interceptor seam.
+        SparkrockRwcDbContext context = ContainerDbContextFactory.Create(
+            _fixture.ConnectionString,
+            Clock,
+            CurrentUser,
+            extraInterceptors: interceptors);
 
         _contexts.Add(context);
 
